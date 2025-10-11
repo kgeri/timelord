@@ -1,5 +1,7 @@
 namespace TimeLordService;
 
+using System.Runtime.InteropServices;
+
 public class Worker(ILogger<Worker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -11,9 +13,16 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 string name = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-                logger.LogInformation($"Current user: {name}");
+                if (LockWorkStation())
+                {
+                    logger.LogInformation($"Locked session for: {name}");
+                }
+                else
+                {
+                    logger.LogWarning("Call to LockWorkStation() was not successful");
+                }
 
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
         catch (TaskCanceledException)
@@ -27,4 +36,7 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
             Environment.Exit(1);
         }
     }
+
+    [DllImport("user32.dll")]
+    static extern bool LockWorkStation();
 }
