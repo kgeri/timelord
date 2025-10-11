@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36518.9 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeLordService", "TimeLordService.csproj", "{F59F12BE-BBE6-4A79-BCB8-15BD193D4F91}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F59F12BE-BBE6-4A79-BCB8-15BD193D4F91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F59F12BE-BBE6-4A79-BCB8-15BD193D4F91}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F59F12BE-BBE6-4A79-BCB8-15BD193D4F91}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F59F12BE-BBE6-4A79-BCB8-15BD193D4F91}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {92ED4959-B62D-48C4-95D4-964E048B8636}
+	EndGlobalSection
+EndGlobal
