@@ -4,8 +4,7 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.WriteLine("Started TimeLordService");
-        logger.LogInformation("TimeLordService started at {time}", DateTimeOffset.Now);
+        logger.LogInformation("Started at {time}", DateTimeOffset.Now);
 
         try
         {
@@ -17,9 +16,14 @@ public class Worker(ILogger<Worker> logger) : BackgroundService
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
+        catch (TaskCanceledException)
+        {
+            logger.LogInformation("Exiting normally");
+            Environment.Exit(0);
+        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "TimeLordService failed");
+            logger.LogError(ex, "Worker failed");
             Environment.Exit(1);
         }
     }
