@@ -1,0 +1,34 @@
+{
+    "Days": {
+        "Monday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 30
+        },
+        "Tuesday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 30
+        },
+        "Wednesday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 30
+        },
+        "Thursday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 30
+        },
+        "Saturday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 60
+        },
+        "Sunday": {
+            "Start": "08:00",
+            "End": "19:00",
+            "MaxMinutes": 60
+        }
+    }
+}
