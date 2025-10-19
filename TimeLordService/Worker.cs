@@ -2,7 +2,7 @@ namespace TimeLordService;
 
 using System.Runtime.InteropServices;
 
-public class Worker(ILogger<Worker> logger, ScheduleService scheduleService) : BackgroundService
+public class Worker(ILogger<Worker> logger, UserSessionService userSessionService, ScheduleService scheduleService) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -12,8 +12,7 @@ public class Worker(ILogger<Worker> logger, ScheduleService scheduleService) : B
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                string name = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-                Console.WriteLine(scheduleService.Schedule);
+                Console.WriteLine($"user={userSessionService.CurrentUserName}, schedule={scheduleService.Schedule}");
                 // if (LockWorkStation())
                 // {
                 //     logger.LogInformation($"Locked session for: {name}");

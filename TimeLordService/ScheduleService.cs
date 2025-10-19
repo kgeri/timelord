@@ -11,12 +11,13 @@ public class ScheduleService : IDisposable
     private readonly ILogger<ScheduleService> logger;
     private readonly FileSystemWatcher watcher;
     private Schedule schedule;
+
     public Schedule Schedule => schedule;
 
     public ScheduleService(ILogger<ScheduleService> logger)
     {
         this.logger = logger;
-        LoadSchedule();
+        schedule = LoadSchedule(SchedulePath);
 
         // Set up file watching for the schedule
         var dir = Path.GetDirectoryName(SchedulePath)!;
@@ -25,23 +26,25 @@ public class ScheduleService : IDisposable
         {
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
         };
-        watcher.Changed += (_, _) => LoadSchedule();
+        watcher.Changed += (_, _) => schedule = LoadSchedule(SchedulePath);
         watcher.EnableRaisingEvents = true;
     }
 
-    private void LoadSchedule()
+    private Schedule LoadSchedule(string path)
     {
-        if (File.Exists(SchedulePath))
+        Schedule s;
+        if (File.Exists(path))
         {
-            using var stream = File.OpenRead(SchedulePath);
-            schedule = JsonSerializer.Deserialize<Schedule>(stream);
-            logger.LogInformation($"Loaded {SchedulePath}: {schedule}");
+            using var stream = File.OpenRead(path);
+            s = JsonSerializer.Deserialize<Schedule>(stream) ?? throw new JsonException("Failed to deserialize schedule");
+            logger.LogInformation("Loaded {path}: {schedule}", path, s);
         }
         else
         {
-            schedule = null;
-            logger.LogInformation($"{SchedulePath} not found, using default schedule");
+            s = new Schedule();
+            logger.LogInformation("{path} not found, using default schedule", path);
         }
+        return s;
     }
 
     public void Dispose()

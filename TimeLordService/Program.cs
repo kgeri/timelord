@@ -1,4 +1,3 @@
-using System.Text.Json;
 using TimeLordService;
 
 Environment.SetEnvironmentVariable("DOTNET_hostBuilder:reloadConfigOnChange", "false"); // OMG... see README.md
@@ -6,8 +5,10 @@ Environment.SetEnvironmentVariable("DOTNET_hostBuilder:reloadConfigOnChange", "f
 Console.WriteLine("Starting TimeLord...");
 
 var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<Worker>();
-builder.Services.AddSingleton<ScheduleService>();
+builder.Services
+    .AddHostedService<Worker>()
+    .AddSingleton<ScheduleService>()
+    .AddSingleton<UserSessionService>();
 builder.Logging.AddConsole();
-builder.Logging.AddEventLog(settings => settings.SourceName = "TimeLordService");
+// builder.Logging.AddEventLog(settings => settings.SourceName = "TimeLordService");
 builder.Build().Run();
