@@ -6,13 +6,13 @@ public class ScheduleService : IDisposable
 {
     private readonly string SchedulePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        "kidcontrol.json"
+        ".timelord\\kidcontrol.json"
     );
     private readonly ILogger<ScheduleService> logger;
     private readonly FileSystemWatcher watcher;
     private Schedule schedule;
 
-    public Schedule Schedule => schedule;
+    public Schedule CurrentSchedule => schedule;
 
     public ScheduleService(ILogger<ScheduleService> logger)
     {
