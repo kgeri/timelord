@@ -1,38 +1,31 @@
-
-using Microsoft.Win32;
-
 namespace TimeLordService;
 
-public class UserSessionService
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+
+class WindowsSessionUtils
 {
-    private readonly string currentUserName;
-
-    public string CurrentUserName => currentUserName;
-
-    public UserSessionService()
+    internal static string GetCurrentUserName()
     {
         try
         {
-            currentUserName = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            return System.Security.Principal.WindowsIdentity.GetCurrent().Name;
         }
         catch (PlatformNotSupportedException)
         {
-            currentUserName = "<unknown>";
+            return "<unknown>";
         }
     }
 
-    internal void OnSessionStart()
-    {
-        throw new NotImplementedException();
-    }
-
-    internal void OnSessionEnd()
-    {
-        throw new NotImplementedException();
-    }
+    [DllImport("user32.dll")]
+    internal static extern bool LockWorkStation();
 }
 
-public class WindowsSessionSwitchService(ILogger<WindowsSessionSwitchService> logger, UserSessionService userSessionService) : IHostedService
+/// <summary>
+/// Listens for Windows session events (logon, logoff, lock, unlock) and notifies TimeManager.
+/// This service is not enabled on Linux.
+/// </summary>
+public class WindowsSessionListener(ILogger<WindowsSessionListener> logger, TimeManager timeManager) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -54,11 +47,11 @@ public class WindowsSessionSwitchService(ILogger<WindowsSessionSwitchService> lo
             {
                 case SessionSwitchReason.SessionLogon:
                 case SessionSwitchReason.SessionUnlock:
-                    userSessionService.OnSessionStart();
+                    timeManager.OnSessionStart();
                     break;
                 case SessionSwitchReason.SessionLogoff:
                 case SessionSwitchReason.SessionLock:
-                    userSessionService.OnSessionEnd();
+                    timeManager.OnSessionEnd();
                     break;
             }
         }

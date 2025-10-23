@@ -1,8 +1,6 @@
 namespace TimeLordService;
 
-using System.Runtime.InteropServices;
-
-public class Worker(ILogger<Worker> logger, UserSessionService userSessionService, ScheduleService scheduleService) : BackgroundService
+public class Worker(ILogger<Worker> logger, TimeManager timeManager) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -12,17 +10,8 @@ public class Worker(ILogger<Worker> logger, UserSessionService userSessionServic
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                Console.WriteLine($"user={userSessionService.CurrentUserName}, schedule={scheduleService.Schedule}");
-                // if (LockWorkStation())
-                // {
-                //     logger.LogInformation($"Locked session for: {name}");
-                // }
-                // else
-                // {
-                //     logger.LogWarning("Call to LockWorkStation() was not successful");
-                // }
-
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                timeManager.Process(DateTime.Now);
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
             }
         }
         catch (TaskCanceledException)
@@ -36,7 +25,4 @@ public class Worker(ILogger<Worker> logger, UserSessionService userSessionServic
             Environment.Exit(1);
         }
     }
-
-    [DllImport("user32.dll")]
-    static extern bool LockWorkStation();
 }

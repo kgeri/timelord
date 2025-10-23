@@ -8,11 +8,11 @@ Console.WriteLine("Starting TimeLord...");
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<Worker>()
     .AddSingleton<ScheduleService>()
-    .AddSingleton<UserSessionService>();
+    .AddSingleton<TimeManager>();
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
-    builder.Services.AddHostedService<WindowsSessionSwitchService>();
+    builder.Services.AddHostedService<WindowsSessionListener>();
 }
 
 builder.Logging.AddConsole();
