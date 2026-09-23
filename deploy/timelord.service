@@ -1,0 +1,14 @@
+[Unit]
+Description=TimeLord process monitor
+Documentation=https://github.com/kgeri/timelord
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/timelord -listen 0.0.0.0:9220
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
