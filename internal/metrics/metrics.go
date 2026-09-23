@@ -6,46 +6,69 @@ import (
 	"timelord/internal/process"
 )
 
-// Collector exposes the process cache as the timelord_process metric.
+// Collector exposes the process cache as Prometheus metrics.
 type Collector struct {
-	cache *process.Cache
-	desc  *prometheus.Desc
+	cache      *process.Cache
+	instances  *prometheus.Desc
+	memoryRSS  *prometheus.Desc
+	cpuSeconds *prometheus.Desc
 }
 
 // NewCollector returns a collector that reads from cache.
 func NewCollector(cache *process.Cache) *Collector {
 	return &Collector{
 		cache: cache,
-		desc: prometheus.NewDesc(
-			"timelord_process",
+		instances: prometheus.NewDesc(
+			"timelord_process_instances",
 			"Number of running processes per user and name.",
+			[]string{"user", "name"},
+			nil,
+		),
+		memoryRSS: prometheus.NewDesc(
+			"timelord_process_memory_rss_bytes",
+			"Resident memory of running processes per user and name.",
+			[]string{"user", "name"},
+			nil,
+		),
+		cpuSeconds: prometheus.NewDesc(
+			"timelord_process_cpu_seconds_total",
+			"CPU time that TimeLord observed for processes per user and name.",
 			[]string{"user", "name"},
 			nil,
 		),
 	}
 }
 
-// Describe sends the metric description to Prometheus.
+// Describe sends the metric descriptions to Prometheus.
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.desc
+	ch <- c.instances
+	ch <- c.memoryRSS
+	ch <- c.cpuSeconds
+}
+
+// series is the aggregate of all entries that share a user and name.
+type series struct {
+	instances   int
+	memoryBytes uint64
+	cpuSeconds  float64
 }
 
 // Collect sends one metric for each user and name pair.
-// It adds the counts of entries that share the same user and name.
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	counts := make(map[userName]int)
+	byName := make(map[userName]series)
 	for _, entry := range c.cache.Snapshot() {
-		counts[userName{user: entry.User, name: entry.Name}] += entry.Count
+		key := userName{user: entry.User, name: entry.Name}
+		s := byName[key]
+		s.instances += entry.Count
+		s.memoryBytes += entry.MemoryBytes
+		s.cpuSeconds += entry.CPUSeconds
+		byName[key] = s
 	}
 
-	for key, count := range counts {
-		ch <- prometheus.MustNewConstMetric(
-			c.desc,
-			prometheus.GaugeValue,
-			float64(count),
-			key.user,
-			key.name,
-		)
+	for key, s := range byName {
+		ch <- prometheus.MustNewConstMetric(c.instances, prometheus.GaugeValue, float64(s.instances), key.user, key.name)
+		ch <- prometheus.MustNewConstMetric(c.memoryRSS, prometheus.GaugeValue, float64(s.memoryBytes), key.user, key.name)
+		ch <- prometheus.MustNewConstMetric(c.cpuSeconds, prometheus.CounterValue, s.cpuSeconds, key.user, key.name)
 	}
 }
 

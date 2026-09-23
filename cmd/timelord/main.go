@@ -19,6 +19,10 @@ func main() {
 
 	log.Println("TimeLord starting...")
 
+	if os.Geteuid() != 0 {
+		log.Println("warning: TimeLord is not running as root, so processes of other users are not visible")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

@@ -28,4 +28,11 @@ Use `-listen` to change the address:
 curl http://127.0.0.1:9220/metrics
 ```
 
-The metric `timelord_process` gives the number of processes per `user` and `name`.
+The endpoint exposes these metrics per `user` and `name`:
+
+- `timelord_process_instances` - number of running processes
+- `timelord_process_memory_rss_bytes` - resident memory
+- `timelord_process_cpu_seconds_total` - CPU time that TimeLord observed, in seconds
+
+TimeLord must run as root to read the executable path of other users' processes.
+It logs a warning when it does not run as root.
