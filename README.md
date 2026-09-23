@@ -17,3 +17,15 @@ Or build and run in one step:
 ```sh
 go run ./cmd/timelord
 ```
+
+## Metrics
+
+The service exposes Prometheus metrics on `0.0.0.0:9220` at `/metrics`.
+Use `-listen` to change the address:
+
+```sh
+./timelord -listen 127.0.0.1:9220
+curl http://127.0.0.1:9220/metrics
+```
+
+The metric `timelord_process` gives the number of processes per `user` and `name`.

@@ -50,7 +50,7 @@ func (s *Scheduler) SetInterval(interval time.Duration) {
 	s.interval = interval
 }
 
-// update refreshes the cache and prints the process list.
+// update refreshes the cache with the latest process list.
 func (s *Scheduler) update() {
 	processes, err := s.lister.List()
 	if err != nil {
@@ -59,12 +59,4 @@ func (s *Scheduler) update() {
 	}
 
 	s.cache.Set(processes)
-	s.print()
-}
-
-// print writes the cached process list to the log.
-func (s *Scheduler) print() {
-	for _, e := range s.cache.Snapshot() {
-		log.Printf("user=%q name=%q executable=%q count=%d", e.User, e.Name, e.Executable, e.Count)
-	}
 }
