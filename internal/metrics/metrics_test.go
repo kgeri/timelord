@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,6 +61,36 @@ timelord_process_instances{name="bash",scope="system",user="alice"} 1
 `
 	if err := testutil.CollectAndCompare(NewCollector(cache), strings.NewReader(expected), "timelord_process_instances"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestServerListen(t *testing.T) {
+	server := NewServer("127.0.0.1:0", process.NewCache())
+
+	if err := server.Listen(); err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	if server.listener == nil {
+		t.Fatal("listener is nil after Listen()")
+	}
+	defer server.listener.Close()
+
+	// A second call reuses the first listener.
+	if err := server.Listen(); err != nil {
+		t.Errorf("second Listen() error = %v, want nil", err)
+	}
+}
+
+func TestServerListenConflict(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+
+	server := NewServer(taken.Addr().String(), process.NewCache())
+	if err := server.Listen(); err == nil {
+		t.Error("Listen() = nil, want an address-in-use error")
 	}
 }
 

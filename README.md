@@ -1,45 +1,25 @@
 # TimeLord kid control
 
-This app was borne out of frustration with Microsoft Family Safety. The darned thing wasn't recording
-usage stats nor applying limits for one of my kids so here we are.
+TimeLord monitors per-user processes and exposes them as Prometheus metrics. It
+replaces an earlier .NET app.
 
-Up until `5f7ae1dea2` this was a .NET app, but I decided to make this cross-platform and move to Go.
-
-It now also has the ability to monitor user processes in general, currently Linux only.
+- [Linux](docs/Linux.md)
+- [Windows](docs/Windows.md)
+- [Data model](docs/Model.md)
 
 ## Build and run
 
 ```sh
 go build -o timelord ./cmd/timelord
-./timelord
-```
-
-Or build and run in one step:
-
-```sh
-go run ./cmd/timelord
-```
-
-## Metrics
-
-The service exposes Prometheus metrics on `0.0.0.0:9220` at `/metrics`.
-Use `-listen` to change the address:
-
-```sh
-./timelord -listen 127.0.0.1:9220
+sudo ./timelord            # root/LocalSystem can see other users
 curl http://127.0.0.1:9220/metrics
 ```
 
-The endpoint exposes these metrics per `user`, `name`, and `scope`:
+TimeLord needs root on Linux or LocalSystem on Windows to read other users'
+processes. It runs a power-on self-test at startup and refuses to start when a
+check fails; run it alone with `-selftest` (exits non-zero on failure).
 
-- `timelord_process_instances` - number of running processes
-- `timelord_process_memory_rss_bytes` - resident memory
-- `timelord_process_cpu_seconds_total` - CPU time that TimeLord observed, in seconds
+## Metrics
 
-The `scope` label is `app` for user-facing applications and `system` for
-everything else, including services started in the user's name. On Linux it
-comes from the process cgroup under `/proc/<pid>/cgroup`: only `app.slice` is an
-app. Windows uses the process session: services run in session 0.
-
-TimeLord must run as root to read the executable path of other users' processes.
-It logs a warning when it does not run as root.
+The service exposes metrics on `0.0.0.0:9220` at `/metrics` (`-listen` changes
+the address). See [docs/Model.md](docs/Model.md).

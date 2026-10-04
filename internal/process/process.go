@@ -12,7 +12,8 @@ const (
 	// ScopeApp marks a user-facing application.
 	ScopeApp
 	// ScopeSystem marks every other process. On Linux this includes the user's
-	// session and background services; on Windows it includes session 0.
+	// session and background services; on Windows it includes session 0, system
+	// accounts, and Windows components under %SystemRoot%.
 	ScopeSystem
 )
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,6 +20,7 @@ const shutdownTimeout = 5 * time.Second
 // Server serves the Prometheus metrics endpoint.
 type Server struct {
 	httpServer *http.Server
+	listener   net.Listener
 }
 
 // NewServer returns a server that exposes the process cache on addr at /metrics.
@@ -37,8 +39,31 @@ func NewServer(addr string, cache *process.Cache) *Server {
 	}
 }
 
+// Listen opens the metrics endpoint. It is safe to call more than once; later
+// calls reuse the first listener.
+//
+// The self-test calls Listen before Run so that a port conflict fails startup
+// instead of being logged and ignored by the server goroutine.
+func (s *Server) Listen() error {
+	if s.listener != nil {
+		return nil
+	}
+
+	listener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return err
+	}
+	s.listener = listener
+	return nil
+}
+
 // Run serves requests until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) {
+	if err := s.Listen(); err != nil {
+		log.Printf("metrics server failed: %v", err)
+		return
+	}
+
 	go func() {
 		<-ctx.Done()
 
@@ -50,8 +75,8 @@ func (s *Server) Run(ctx context.Context) {
 		}
 	}()
 
-	log.Printf("metrics listening on %s", s.httpServer.Addr)
-	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	log.Printf("metrics listening on %s", s.listener.Addr())
+	if err := s.httpServer.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("metrics server failed: %v", err)
 	}
 }
