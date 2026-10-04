@@ -68,6 +68,7 @@ func (l linuxLister) List() ([]Process, error) {
 			User:        ownerName(pidDir),
 			Name:        processName(pidDir, executable),
 			Executable:  executable,
+			Scope:       readScope(pidDir),
 			MemoryBytes: stat.rssPages * uint64(os.Getpagesize()),
 			CPUSeconds:  float64(stat.utime+stat.stime) / userHZ,
 			StartTime:   stat.startTime,
@@ -133,6 +134,41 @@ func readStat(pidDir string) (procStat, error) {
 		startTime: startTime,
 		rssPages:  uint64(rss),
 	}, nil
+}
+
+// appSlice is the systemd slice that holds user-facing applications. Every
+// other slice, including the user's session and background services, is
+// classified as a system process.
+const appSlice = "app.slice"
+
+// readScope returns the TimeLord scope of a process from /proc/<pid>/cgroup.
+// It returns ScopeSystem when the file cannot be read.
+func readScope(pidDir string) Scope {
+	data, err := os.ReadFile(filepath.Join(pidDir, "cgroup"))
+	if err != nil {
+		return ScopeSystem
+	}
+	return scopeFromCgroup(string(data))
+}
+
+// scopeFromCgroup maps the systemd slice in a /proc/<pid>/cgroup file to a
+// TimeLord scope. Each line has the form hierarchy-ID:controller-list:path.
+// The path is a slash-separated list of cgroup names, so a slice matches only
+// when it is one of those names. Only app.slice is an app; the user's session
+// and background services, like system.slice, are system processes.
+func scopeFromCgroup(text string) Scope {
+	for _, line := range strings.Split(text, "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		for _, component := range strings.Split(parts[2], "/") {
+			if component == appSlice {
+				return ScopeApp
+			}
+		}
+	}
+	return ScopeSystem
 }
 
 // ownerName returns the name of the user that owns the process.

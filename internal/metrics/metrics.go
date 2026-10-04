@@ -20,20 +20,20 @@ func NewCollector(cache *process.Cache) *Collector {
 		cache: cache,
 		instances: prometheus.NewDesc(
 			"timelord_process_instances",
-			"Number of running processes per user and name.",
-			[]string{"user", "name"},
+			"Number of running processes per user, name, and scope.",
+			[]string{"user", "name", "scope"},
 			nil,
 		),
 		memoryRSS: prometheus.NewDesc(
 			"timelord_process_memory_rss_bytes",
-			"Resident memory of running processes per user and name.",
-			[]string{"user", "name"},
+			"Resident memory of running processes per user, name, and scope.",
+			[]string{"user", "name", "scope"},
 			nil,
 		),
 		cpuSeconds: prometheus.NewDesc(
 			"timelord_process_cpu_seconds_total",
-			"CPU time that TimeLord observed for processes per user and name.",
-			[]string{"user", "name"},
+			"CPU time that TimeLord observed for processes per user, name, and scope.",
+			[]string{"user", "name", "scope"},
 			nil,
 		),
 	}
@@ -53,11 +53,11 @@ type series struct {
 	cpuSeconds  float64
 }
 
-// Collect sends one metric for each user and name pair.
+// Collect sends one metric for each user, name, and scope triple.
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	byName := make(map[userName]series)
+	byName := make(map[seriesKey]series)
 	for _, entry := range c.cache.Snapshot() {
-		key := userName{user: entry.User, name: entry.Name}
+		key := seriesKey{user: entry.User, name: entry.Name, scope: entry.Scope}
 		s := byName[key]
 		s.instances += entry.Count
 		s.memoryBytes += entry.MemoryBytes
@@ -66,14 +66,15 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	for key, s := range byName {
-		ch <- prometheus.MustNewConstMetric(c.instances, prometheus.GaugeValue, float64(s.instances), key.user, key.name)
-		ch <- prometheus.MustNewConstMetric(c.memoryRSS, prometheus.GaugeValue, float64(s.memoryBytes), key.user, key.name)
-		ch <- prometheus.MustNewConstMetric(c.cpuSeconds, prometheus.CounterValue, s.cpuSeconds, key.user, key.name)
+		ch <- prometheus.MustNewConstMetric(c.instances, prometheus.GaugeValue, float64(s.instances), key.user, key.name, key.scope.String())
+		ch <- prometheus.MustNewConstMetric(c.memoryRSS, prometheus.GaugeValue, float64(s.memoryBytes), key.user, key.name, key.scope.String())
+		ch <- prometheus.MustNewConstMetric(c.cpuSeconds, prometheus.CounterValue, s.cpuSeconds, key.user, key.name, key.scope.String())
 	}
 }
 
-// userName identifies one metric series.
-type userName struct {
-	user string
-	name string
+// seriesKey identifies one metric series.
+type seriesKey struct {
+	user  string
+	name  string
+	scope process.Scope
 }

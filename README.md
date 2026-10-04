@@ -30,11 +30,16 @@ Use `-listen` to change the address:
 curl http://127.0.0.1:9220/metrics
 ```
 
-The endpoint exposes these metrics per `user` and `name`:
+The endpoint exposes these metrics per `user`, `name`, and `scope`:
 
 - `timelord_process_instances` - number of running processes
 - `timelord_process_memory_rss_bytes` - resident memory
 - `timelord_process_cpu_seconds_total` - CPU time that TimeLord observed, in seconds
+
+The `scope` label is `app` for user-facing applications and `system` for
+everything else, including services started in the user's name. On Linux it
+comes from the process cgroup under `/proc/<pid>/cgroup`: only `app.slice` is an
+app. Windows uses the process session: services run in session 0.
 
 TimeLord must run as root to read the executable path of other users' processes.
 It logs a warning when it does not run as root.

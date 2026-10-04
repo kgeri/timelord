@@ -13,6 +13,8 @@ type Entry struct {
 	Name string
 	// Executable is the path of the executable.
 	Executable string
+	// Scope is what started the processes.
+	Scope Scope
 	// Count is the number of running processes with this executable.
 	Count int
 	// MemoryBytes is the total resident memory of the processes in bytes.
@@ -26,6 +28,7 @@ type Entry struct {
 type key struct {
 	user       string
 	executable string
+	scope      Scope
 }
 
 // processState is the last CPU reading for one PID.
@@ -35,7 +38,7 @@ type processState struct {
 }
 
 // Cache is a concurrency-safe in-memory store of processes.
-// TimeLord keys the cache by user and executable.
+// TimeLord keys the cache by user, executable, and scope.
 type Cache struct {
 	mu      sync.RWMutex
 	entries map[key]Entry
@@ -61,7 +64,7 @@ func (c *Cache) Set(processes []Process) {
 	prev := make(map[int]processState, len(processes))
 
 	for _, p := range processes {
-		k := key{user: p.User, executable: p.Executable}
+		k := key{user: p.User, executable: p.Executable, scope: p.Scope}
 
 		entry, ok := entries[k]
 		if !ok {
@@ -69,6 +72,7 @@ func (c *Cache) Set(processes []Process) {
 				User:       p.User,
 				Name:       p.Name,
 				Executable: p.Executable,
+				Scope:      p.Scope,
 			}
 			if old, found := c.entries[k]; found {
 				entry.CPUSeconds = old.CPUSeconds
@@ -92,11 +96,11 @@ func (c *Cache) Set(processes []Process) {
 	c.prev = prev
 }
 
-// Get returns the entry for a user and executable path.
-func (c *Cache) Get(user, executable string) (Entry, bool) {
+// Get returns the entry for a user, executable path, and scope.
+func (c *Cache) Get(user, executable string, scope Scope) (Entry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	entry, ok := c.entries[key{user: user, executable: executable}]
+	entry, ok := c.entries[key{user: user, executable: executable, scope: scope}]
 	return entry, ok
 }
 
@@ -113,7 +117,10 @@ func (c *Cache) Snapshot() []Entry {
 		if out[i].User != out[j].User {
 			return out[i].User < out[j].User
 		}
-		return out[i].Executable < out[j].Executable
+		if out[i].Executable != out[j].Executable {
+			return out[i].Executable < out[j].Executable
+		}
+		return out[i].Scope < out[j].Scope
 	})
 	return out
 }

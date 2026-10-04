@@ -64,14 +64,102 @@ func TestReadStat(t *testing.T) {
 	}
 }
 
+func TestScopeFromCgroup(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want Scope
+	}{
+		{
+			name: "app slice",
+			text: "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-kitty-1067006.scope",
+			want: ScopeApp,
+		},
+		{
+			name: "session slice is a user service, not an app",
+			text: "0::/user.slice/user-1000.slice/user@1000.service/session.slice/gnome-shell.service",
+			want: ScopeSystem,
+		},
+		{
+			name: "background slice is a user service, not an app",
+			text: "0::/user.slice/user-1000.slice/user@1000.service/background.slice/tracker-miner-fs-3.service",
+			want: ScopeSystem,
+		},
+		{
+			name: "system slice",
+			text: "0::/system.slice/cron.service",
+			want: ScopeSystem,
+		},
+		{
+			name: "init scope",
+			text: "0::/init.scope",
+			want: ScopeSystem,
+		},
+		{
+			name: "user manager is not an app",
+			text: "0::/user.slice/user-1000.slice/user@1000.service",
+			want: ScopeSystem,
+		},
+		{
+			name: "does not match substrings",
+			text: "0::/system.slice/notapp.slice.service",
+			want: ScopeSystem,
+		},
+		{
+			name: "cgroup v1 controller lines",
+			text: "11:cpuset:/\n4:memory:/user.slice/user-1000.slice/user@1000.service/app.slice/x.scope",
+			want: ScopeApp,
+		},
+		{
+			name: "empty file",
+			text: "",
+			want: ScopeSystem,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := scopeFromCgroup(tt.text); got != tt.want {
+				t.Errorf("scopeFromCgroup() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScopeString(t *testing.T) {
+	tests := []struct {
+		scope Scope
+		want  string
+	}{
+		{ScopeApp, "app"},
+		{ScopeSystem, "system"},
+		{ScopeUnknown, "unknown"},
+		{Scope(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.scope.String(); got != tt.want {
+			t.Errorf("Scope(%d).String() = %q, want %q", tt.scope, got, tt.want)
+		}
+	}
+}
+
+func TestReadScopeMissingFile(t *testing.T) {
+	if got := readScope(t.TempDir()); got != ScopeSystem {
+		t.Errorf("readScope() = %q, want %q", got, ScopeSystem)
+	}
+}
+
 func TestLinuxListerList(t *testing.T) {
 	procDir := t.TempDir()
 
-	writeProcess(t, procDir, "1234", "/usr/bin/bash", "bash\n", 100, 50, 7, 3)
-	writeProcess(t, procDir, "1235", "/usr/libexec/at-spi-bus-launcher", "at-spi-bus-laun\n", 0, 0, 9, 1)
+	writeProcess(t, procDir, "1234", "/usr/bin/bash", "bash\n",
+		"0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-bash-1234.scope", 100, 50, 7, 3)
+	writeProcess(t, procDir, "1235", "/usr/libexec/at-spi-bus-launcher", "at-spi-bus-laun\n",
+		"0::/user.slice/user-1000.slice/user@1000.service/session.slice/at-spi-dbus-bus.service", 0, 0, 9, 1)
 
 	// A system process is not reported.
-	writeProcess(t, procDir, "999", "/usr/lib/systemd/systemd", "systemd\n", 0, 0, 1, 1)
+	writeProcess(t, procDir, "999", "/usr/lib/systemd/systemd", "systemd\n", "0::/init.scope", 0, 0, 1, 1)
 	// A process without an executable link is not accessible.
 	if err := os.Mkdir(filepath.Join(procDir, "1236"), 0o755); err != nil {
 		t.Fatal(err)
@@ -107,6 +195,9 @@ func TestLinuxListerList(t *testing.T) {
 	if bash.User == "" {
 		t.Error("bash user is empty")
 	}
+	if bash.Scope != ScopeApp {
+		t.Errorf("bash scope = %q, want %q", bash.Scope, ScopeApp)
+	}
 	if bash.CPUSeconds != 1.5 {
 		t.Errorf("bash cpu = %v, want 1.5", bash.CPUSeconds)
 	}
@@ -124,10 +215,13 @@ func TestLinuxListerList(t *testing.T) {
 	if atSpi.Name != "at-spi-bus-launcher" {
 		t.Errorf("at-spi name = %q, want %q", atSpi.Name, "at-spi-bus-launcher")
 	}
+	if atSpi.Scope != ScopeSystem {
+		t.Errorf("at-spi scope = %q, want %q", atSpi.Scope, ScopeSystem)
+	}
 }
 
 // writeProcess makes a fake /proc/<pid> directory.
-func writeProcess(t *testing.T, procDir, pid, executable, comm string, utime, stime, startTime, rss int) {
+func writeProcess(t *testing.T, procDir, pid, executable, comm, cgroup string, utime, stime, startTime, rss int) {
 	t.Helper()
 
 	pidDir := filepath.Join(procDir, pid)
@@ -138,6 +232,9 @@ func writeProcess(t *testing.T, procDir, pid, executable, comm string, utime, st
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pidDir, "comm"), []byte(comm), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "cgroup"), []byte(cgroup), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
