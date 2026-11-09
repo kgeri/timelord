@@ -23,10 +23,14 @@ type Server struct {
 	listener   net.Listener
 }
 
-// NewServer returns a server that exposes the process cache on addr at /metrics.
-func NewServer(addr string, cache *process.Cache) *Server {
+// NewServer returns a server that exposes the process cache and optional usage
+// source on addr at /metrics.
+func NewServer(addr string, cache *process.Cache, usage UsageSource) *Server {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(NewCollector(cache))
+	if usage != nil {
+		registry.MustRegister(NewUsageCollector(usage))
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))

@@ -5,6 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
+# deploy.sh adds one -user flag for each managed user.
 ExecStart=/usr/local/bin/timelord -listen 0.0.0.0:9220
 Restart=on-failure
 RestartSec=5s

@@ -28,3 +28,6 @@ built-in Administrator, or set `LocalAccountTokenFilterPolicy` to 1 under
 Logs at `%ProgramData%\TimeLord\timelord.log`. Scope is `system` for session 0,
 system/service accounts, and known Windows component paths/packages. See
 [install.ps1](../deploy/windows/install.ps1), [lister_windows.go](../internal/process/lister_windows.go).
+
+Schedule enforcement is currently Linux-only; Windows still exposes the
+process metrics.

@@ -3,8 +3,9 @@ module timelord
 go 1.18
 
 require (
+	github.com/fsnotify/fsnotify v1.7.0
 	github.com/prometheus/client_golang v1.14.0
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
+	golang.org/x/sys v0.4.0
 )
 
 require (

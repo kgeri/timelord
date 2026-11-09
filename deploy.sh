@@ -24,6 +24,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_SRC="${SCRIPT_DIR}/deploy/${UNIT_NAME}"
 DIST_DIR="${SCRIPT_DIR}/dist"
 
+# Users whose schedules TimeLord enforces. The service flag is repeatable; the
+# deployment script currently manages only Dani.
+MANAGED_USERS=(dani)
+
 # The user that invoked sudo owns the Go toolchain and its caches. Run the build
 # tools as that user, not as root.
 build_user="${SUDO_USER:-$(id -un)}"
@@ -134,7 +138,14 @@ ssh "$host" "
 "
 
 echo "Installing the systemd unit..."
-scp "$UNIT_SRC" "${host}:${UNIT_PATH}.new"
+unit_build="$(mktemp)"
+trap 'rm -f "$unit_build"' EXIT
+exec_start="${INSTALL_PATH} -listen 0.0.0.0:9220"
+for managed_user in "${MANAGED_USERS[@]}"; do
+	exec_start="${exec_start} -user ${managed_user}"
+done
+sed "s|^ExecStart=.*$|ExecStart=${exec_start}|" "$UNIT_SRC" > "$unit_build"
+scp "$unit_build" "${host}:${UNIT_PATH}.new"
 ssh "$host" "
 	set -e
 	mv -f '${UNIT_PATH}.new' '${UNIT_PATH}'

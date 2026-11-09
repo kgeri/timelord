@@ -11,7 +11,7 @@ replaces an earlier .NET app.
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo ./timelord            # root/LocalSystem can see other users
+sudo ./timelord -user dani # root/LocalSystem can see other users
 curl http://127.0.0.1:9220/metrics
 ```
 
@@ -23,3 +23,23 @@ check fails; run it alone with `-selftest` (exits non-zero on failure).
 
 The service exposes metrics on `0.0.0.0:9220` at `/metrics` (`-listen` changes
 the address). See [docs/Model.md](docs/Model.md).
+
+## Schedule
+
+TimeLord reads `~/timelord-schedule.json` from each user selected with the
+repeatable `-user` flag. A missing file means that user is allowed no time. The
+file is watched and reloaded automatically. On Linux, denied local sessions
+are logged out via `systemd-logind`; remote sessions such as SSH are ignored.
+
+See [docs/Model.md](docs/Model.md#schedule-data-model) and the sample
+[timelord-schedule.dani.json](timelord-schedule.dani.json).
+
+The deployment script currently passes `-user dani`. The remaining daily time
+is exported as `timelord_schedule_remaining_seconds{user="dani"}`.
+
+Upload Dani's schedule to the default `dani@dani` host with:
+
+```sh
+./deploy-schedule.sh
+# or: ./deploy-schedule.sh user@host path/to/timelord-schedule.json
+```
