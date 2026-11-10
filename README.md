@@ -34,6 +34,7 @@ are logged out via `systemd-logind`; remote sessions such as SSH are ignored.
 See [docs/Model.md](docs/Model.md#schedule-data-model) and the sample
 [timelord-schedule.dani.json](timelord-schedule.dani.json).
 
+Daily usage is persisted in `~/timelord-schedule.csv` and restored on startup.
 The deployment script currently passes `-user dani`. The remaining daily time
 is exported as `timelord_schedule_remaining_seconds{user="dani"}`.
 

@@ -31,7 +31,7 @@ func TestEngineTracksActiveSessionTime(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.interval = time.Hour
 
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
@@ -58,7 +58,7 @@ func TestEngineDoesNotCountLockedSession(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true, Locked: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.interval = time.Hour
 
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
@@ -82,7 +82,7 @@ func TestEngineIgnoresRemoteSessions(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Class: "user", Remote: true, Active: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.interval = time.Hour
 
 	now := time.Date(2024, time.June, 3, 20, 0, 0, 0, time.Local)
@@ -106,7 +106,7 @@ func TestEngineTerminatesOutsideWindow(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.now = func() time.Time {
 		return time.Date(2024, time.June, 3, 20, 0, 0, 0, time.Local)
 	}
@@ -123,7 +123,7 @@ func TestEngineTerminatesAtDailyLimit(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.interval = time.Hour
 
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
@@ -143,7 +143,7 @@ func TestEngineTerminatesWithoutPolicy(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true, Locked: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 
 	engine.tick(context.Background())
 
@@ -157,7 +157,7 @@ func TestEngineAuditsSessionTransitions(t *testing.T) {
 	source := &fakeSessionSource{sessions: []Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
-	engine := NewEngine(source, store)
+	engine := NewEngine(source, store, nil)
 	engine.interval = time.Hour
 
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
@@ -206,7 +206,7 @@ func TestEngineUsageSnapshotIncludesManagedUsersWithoutPolicy(t *testing.T) {
 		User:              "dani",
 		DailyLimitMinutes: 60,
 	}}})
-	engine := NewEngine(&fakeSessionSource{}, store)
+	engine := NewEngine(&fakeSessionSource{}, store, nil)
 	engine.now = func() time.Time {
 		return time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
 	}
@@ -224,7 +224,7 @@ func TestEngineUsageSnapshotIncludesManagedUsersWithoutPolicy(t *testing.T) {
 }
 
 func TestEngineRolloverResetsUsage(t *testing.T) {
-	engine := NewEngine(&fakeSessionSource{}, schedule.NewStore([]string{"dani"}))
+	engine := NewEngine(&fakeSessionSource{}, schedule.NewStore([]string{"dani"}), nil)
 	engine.used["dani"] = time.Hour
 	engine.date = "2024-06-03"
 

@@ -19,7 +19,9 @@ Sessions come from systemd-logind: active, unlocked local sessions count toward
 the daily limit, and a denied session is logged out with
 `loginctl terminate-session`. Remote sessions such as SSH are ignored. Login,
 logout, lock, and unlock transitions for managed users are logged with an
-`AUDIT:` prefix. The source is [internal/enforce](../internal/enforce).
+`AUDIT:` prefix. Daily usage is restored from and saved to
+`~/timelord-schedule.csv`. The source is
+[internal/enforce](../internal/enforce).
 
 ## Deploy
 

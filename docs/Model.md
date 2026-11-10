@@ -116,8 +116,21 @@ TimeLord keeps one usage record for each managed user and local date:
 A new record starts at zero at local midnight. Records for earlier dates are
 discarded. Used time increases only while the user has an active session
 (logged on and unlocked); locked or logged-off time does not count. The daily
-limit is shared by all windows on that date. The current implementation keeps
-usage in memory, so restarting TimeLord resets the current day's used time.
+limit is shared by all windows on that date.
+
+Usage is persisted in `~/timelord-schedule.csv` next to the schedule file:
+
+```csv
+DATE,USED_MINUTES
+2026-11-10,17
+```
+
+TimeLord restores today's row at startup, writes the file every five minutes,
+and writes it again on clean shutdown. The file contains only the current day's
+row; the date prevents stale usage from being restored after a day rollover.
+Used seconds are rounded up to the next minute when saving. A missing file
+starts at zero; an unreadable or invalid file is logged and also starts at
+zero.
 
 ### Evaluation
 

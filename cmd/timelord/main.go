@@ -49,7 +49,7 @@ func main() {
 		if err != nil {
 			log.Printf("WARN: schedule enforcement disabled: %v", err)
 		} else {
-			engine = enforce.NewEngine(sessionSource, store)
+			engine = enforce.NewEngine(sessionSource, store, usagePaths(files))
 			usageSource = engine
 		}
 
@@ -74,13 +74,23 @@ func main() {
 			log.Println("schedule reloaded")
 			logSchedule(store)
 		})
+
+		var engineDone chan struct{}
 		if engine != nil && len(store.Users()) > 0 {
-			go engine.Run(ctx)
+			engineDone = make(chan struct{})
+			go func() {
+				defer close(engineDone)
+				engine.Run(ctx)
+			}()
 		}
 		go metricsServer.Run(ctx)
 
 		sched := scheduler.New(lister, cache)
 		sched.Run(ctx)
+
+		if engineDone != nil {
+			<-engineDone
+		}
 
 		log.Println("TimeLord stopped")
 		return nil
@@ -143,6 +153,15 @@ func fileUsers(files []schedule.File) []string {
 		users = append(users, file.User)
 	}
 	return users
+}
+
+// usagePaths returns the usage data file next to each user's schedule file.
+func usagePaths(files []schedule.File) map[string]string {
+	paths := make(map[string]string, len(files))
+	for _, file := range files {
+		paths[file.User] = filepath.Join(filepath.Dir(file.Path), enforce.UsageFileName)
+	}
+	return paths
 }
 
 // logSchedule writes the currently loaded policies.

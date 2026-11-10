@@ -3,6 +3,8 @@ package enforce
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log"
 	"sync"
 	"time"
@@ -12,6 +14,9 @@ import (
 
 // DefaultInterval is the time between two session checks.
 const DefaultInterval = 15 * time.Second
+
+// DefaultSaveInterval is the time between usage data writes.
+const DefaultSaveInterval = 5 * time.Minute
 
 // Session is one login session as reported by the operating system.
 type Session struct {
@@ -34,12 +39,14 @@ type SessionSource interface {
 
 // Engine tracks active use and terminates sessions that the schedule denies.
 type Engine struct {
-	source   SessionSource
-	store    *schedule.Store
-	users    []string
-	managed  map[string]bool
-	interval time.Duration
-	now      func() time.Time
+	source       SessionSource
+	store        *schedule.Store
+	users        []string
+	managed      map[string]bool
+	usagePaths   map[string]string
+	interval     time.Duration
+	saveInterval time.Duration
+	now          func() time.Time
 
 	mu            sync.Mutex
 	date          string
@@ -52,40 +59,56 @@ type Engine struct {
 	auditReady   bool
 }
 
-// NewEngine returns an engine for the users managed by store.
-func NewEngine(source SessionSource, store *schedule.Store) *Engine {
+// NewEngine returns an engine for the users managed by store. usagePaths maps
+// each user to their usage data file; a missing entry disables persistence for
+// that user.
+func NewEngine(source SessionSource, store *schedule.Store, usagePaths map[string]string) *Engine {
 	users := store.Users()
 	managed := make(map[string]bool, len(users))
 	for _, user := range users {
 		managed[user] = true
 	}
 
-	return &Engine{
+	paths := make(map[string]string, len(usagePaths))
+	for user, path := range usagePaths {
+		paths[user] = path
+	}
+
+	engine := &Engine{
 		source:       source,
 		store:        store,
 		users:        users,
 		managed:      managed,
+		usagePaths:   paths,
 		interval:     DefaultInterval,
+		saveInterval: DefaultSaveInterval,
 		now:          time.Now,
 		used:         make(map[string]time.Duration),
 		lastSessions: make(map[string]Session),
 	}
+	engine.loadUsage(engine.now())
+	return engine
 }
 
 // Run checks sessions until ctx is cancelled. It checks immediately, then waits
-// for the next interval.
+// for the next interval, and saves usage periodically and on clean shutdown.
 func (e *Engine) Run(ctx context.Context) {
 	e.tick(ctx)
 
-	ticker := time.NewTicker(e.interval)
-	defer ticker.Stop()
+	checkTicker := time.NewTicker(e.interval)
+	defer checkTicker.Stop()
+	saveTicker := time.NewTicker(e.saveInterval)
+	defer saveTicker.Stop()
+	defer e.saveUsage()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-checkTicker.C:
 			e.tick(ctx)
+		case <-saveTicker.C:
+			e.saveUsage()
 		}
 	}
 }
@@ -189,9 +212,63 @@ func (e *Engine) usedFor(user string) time.Duration {
 	return e.used[user]
 }
 
+// loadUsage restores today's recorded usage from each user's data file.
+func (e *Engine) loadUsage(now time.Time) {
+	date := now.In(time.Local).Format(dateLayout)
+
+	e.mu.Lock()
+	e.date = date
+	e.used = make(map[string]time.Duration, len(e.users))
+	e.mu.Unlock()
+
+	for _, user := range e.users {
+		path := e.usagePaths[user]
+		if path == "" {
+			continue
+		}
+
+		used, err := readUsageFile(path, date)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			log.Printf("WARN: load usage for user %s from %s: %v", user, path, err)
+			continue
+		}
+
+		e.mu.Lock()
+		e.used[user] = used
+		e.mu.Unlock()
+	}
+}
+
+// saveUsage writes today's usage for every user with a data file.
+func (e *Engine) saveUsage() {
+	now := e.now()
+
+	e.mu.Lock()
+	e.rolloverLocked(now)
+	date := e.date
+	used := make(map[string]time.Duration, len(e.users))
+	for _, user := range e.users {
+		used[user] = e.used[user]
+	}
+	e.mu.Unlock()
+
+	for _, user := range e.users {
+		path := e.usagePaths[user]
+		if path == "" {
+			continue
+		}
+		if err := writeUsageFile(path, date, used[user]); err != nil {
+			log.Printf("WARN: save usage for user %s to %s: %v", user, path, err)
+		}
+	}
+}
+
 // rolloverLocked resets usage when the local date changes.
 func (e *Engine) rolloverLocked(now time.Time) {
-	date := now.In(time.Local).Format("2006-01-02")
+	date := now.In(time.Local).Format(dateLayout)
 	if e.date == date {
 		return
 	}
