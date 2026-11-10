@@ -22,7 +22,7 @@ go build -o timetower ./cmd/timetower
 ```
 
 Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with
-`./deploy-timetower.sh`. The API is documented in
+`./deploy-timetower.sh` (targets `srvu` by default). The API is documented in
 [docs/Timetower.md](docs/Timetower.md) and [docs/openapi.yaml](docs/openapi.yaml).
 
 ## Build and run

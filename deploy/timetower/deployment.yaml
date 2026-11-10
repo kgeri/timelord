@@ -52,6 +52,9 @@ spec:
         app: timetower
     spec:
       automountServiceAccountToken: false
+      # The state and config volumes are hostPath-backed.
+      nodeSelector:
+        kubernetes.io/hostname: ${TIMETOWER_NODE}
       containers:
         - name: timetower
           image: docker.ogreg.org/timetower:${IMAGE_TAG}

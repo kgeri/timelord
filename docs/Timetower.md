@@ -167,12 +167,12 @@ Enforcer.
 
 ## Deployment
 
-`deploy-timetower.sh` seeds `/data/hosted/timetower/config.json` from
-`deploy/timetower/config-default.json` when it is missing, builds and pushes the
-Timetower image, and applies the Kubernetes manifests in
-`deploy/timetower/deployment.yaml`. Pass a `[user@]host` argument to seed the
-config over SSH/SCP; without one, the script assumes it runs on the host that
-owns `/data/hosted/timetower`.
+`deploy-timetower.sh` seeds `/data/hosted/timetower/config.json` on `srvu`
+from `deploy/timetower/config-default.json` when it is missing, builds and
+pushes the Timetower image, and applies the Kubernetes manifests in
+`deploy/timetower/deployment.yaml`. The Deployment is pinned to `srvu` so its hostPath volumes are always on the
+same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override
+the SSH target; set `TIMETOWER_NODE` to override the Kubernetes node name.
 
 Usage and status state is stored alongside the configuration in
 `/data/hosted/timetower/state.json`.
