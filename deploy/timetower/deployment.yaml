@@ -1,0 +1,103 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-timetower
+  namespace: ${NAMESPACE}
+  labels:
+    name: ingress-timetower
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  tls:
+    - secretName: ogreg-org-tls
+  rules:
+    - host: timetower.ogreg.org
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: timetower
+                port:
+                  number: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timetower
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app: timetower
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timetower
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: timetower
+  template:
+    metadata:
+      labels:
+        app: timetower
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: timetower
+          image: docker.ogreg.org/timetower:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          args:
+            - -listen
+            - 0.0.0.0:8080
+            - -config
+            - /var/lib/timetower/config.json
+            - -state
+            - /var/lib/timetower/state.json
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/timetower
+      volumes:
+        - name: state
+          hostPath:
+            path: ${TIMETOWER_DIR}
+            type: DirectoryOrCreate

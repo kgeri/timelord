@@ -1,0 +1,9 @@
+/.git
+/.tmp
+/.sandbox.conf
+/.sandbox.env
+/dist
+/timelord
+/timetower
+/timetower.json
+/timetower-state.json

@@ -6,8 +6,28 @@ replaces an earlier .NET app.
 - [Linux](docs/Linux.md)
 - [Windows](docs/Windows.md)
 - [Data model](docs/Model.md)
+- [Timetower API](docs/Timetower.md)
+- [Timetower OpenAPI spec](docs/openapi.yaml)
+
+## Timetower
+
+Timetower is the central REST service for Enforcers. It identifies Enforcers by
+the client IP forwarded by the ingress, using static configuration.
+
+```sh
+cp deploy/timetower/config-default.json timetower.json
+# Set each Enforcer's source IP in timetower.json.
+go build -o timetower ./cmd/timetower
+./timetower -config timetower.json -state timetower-state.json
+```
+
+Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with
+`./deploy-timetower.sh`. The API is documented in
+[docs/Timetower.md](docs/Timetower.md) and [docs/openapi.yaml](docs/openapi.yaml).
 
 ## Build and run
+
+The Enforcer daemon is built from `cmd/timelord`:
 
 ```sh
 go build -o timelord ./cmd/timelord

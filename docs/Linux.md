@@ -25,12 +25,12 @@ logout, lock, and unlock transitions for managed users are logged with an
 
 ## Deploy
 
-[deploy.sh](../deploy.sh) builds the binary, installs it and the systemd unit,
-and restarts the service:
+[deploy-enforcer-linux.sh](../deploy-enforcer-linux.sh) builds the binary,
+installs it and the systemd unit, and restarts the service:
 
 ```sh
-sudo ./deploy.sh [user@]host
-sudo ./deploy.sh --uninstall [user@]host
+sudo ./deploy-enforcer-linux.sh [user@]host
+sudo ./deploy-enforcer-linux.sh --uninstall [user@]host
 ```
 
 - Unit: [deploy/timelord.service](../deploy/timelord.service)

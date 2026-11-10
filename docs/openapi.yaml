@@ -1,0 +1,379 @@
+openapi: 3.0.3
+info:
+  title: Timetower API
+  version: 1.0.0
+  description: |
+    Schedule and status service for TimeLord Enforcers. Enforcers are
+    identified by the client IP forwarded by the ingress. Timestamps are UTC
+    RFC 3339; durations are integer seconds.
+servers:
+  - url: https://timetower.ogreg.org
+security: []
+
+paths:
+  /api/v1/schedule:
+    get:
+      summary: Get the Enforcer schedule
+      description: |
+        Returns the policy and remaining daily time for the Enforcer identified
+        by the request's source IP address.
+      operationId: getSchedule
+      responses:
+        '200':
+          description: Current schedule.
+          headers:
+            X-Schedule-Revision:
+              description: Current schedule revision.
+              schema:
+                type: integer
+                minimum: 0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '403':
+          description: The source IP address is not configured.
+        '500':
+          description: Internal server error.
+        '503':
+          description: Service unavailable.
+
+  /api/v1/status:
+    put:
+      summary: Report Enforcer status
+      description: |
+        Replaces the Enforcer's current status and process statistics. The
+        response's `X-Schedule-Revision` header tells the Enforcer whether it
+        needs to fetch `/api/v1/schedule` again.
+      operationId: putStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusRequest'
+      responses:
+        '200':
+          description: Status accepted.
+          headers:
+            X-Schedule-Revision:
+              description: Current schedule revision.
+              schema:
+                type: integer
+                minimum: 0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          description: Malformed request.
+        '403':
+          description: The source IP address is not configured.
+        '409':
+          description: Status conflicts with the server's current policy day.
+        '413':
+          description: Request body exceeds the configured limit.
+        '422':
+          description: Validation failed.
+        '500':
+          description: Internal server error.
+        '503':
+          description: Service unavailable.
+
+components:
+  schemas:
+    Window:
+      type: object
+      additionalProperties: false
+      required: [day, start, end]
+      properties:
+        day:
+          type: string
+          enum: [mon, tue, wed, thu, fri, sat, sun]
+        start:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '08:00'
+        end:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '19:00'
+    Policy:
+      type: object
+      additionalProperties: false
+      required: [enabled, daily_limit_seconds, windows]
+      properties:
+        enabled:
+          type: boolean
+        daily_limit_seconds:
+          type: integer
+          minimum: 0
+          description: Maximum active seconds per policy day; `0` means no duration limit.
+        windows:
+          type: array
+          items:
+            $ref: '#/components/schemas/Window'
+      example:
+        enabled: true
+        daily_limit_seconds: 3600
+        windows:
+          - {day: mon, start: '08:00', end: '19:00'}
+          - {day: tue, start: '08:00', end: '19:00'}
+    UsageState:
+      type: object
+      required: [day, used_seconds, remaining_seconds]
+      properties:
+        day:
+          type: string
+          format: date
+        used_seconds:
+          type: integer
+          minimum: 0
+        remaining_seconds:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Remaining seconds for the day; `null` when there is no daily limit.
+    ScheduleSubject:
+      type: object
+      required: [subject, account, policy, usage]
+      properties:
+        subject:
+          type: string
+        account:
+          type: string
+          maxLength: 256
+        policy:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Policy'
+          nullable: true
+        usage:
+          $ref: '#/components/schemas/UsageState'
+    Schedule:
+      type: object
+      required:
+        [schema_version, server_time, timezone, status_interval_seconds,
+         offline_grace_seconds, subjects]
+      properties:
+        schema_version:
+          type: integer
+          example: 1
+        server_time:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+          example: Europe/Budapest
+        status_interval_seconds:
+          type: integer
+          minimum: 1
+        offline_grace_seconds:
+          type: integer
+          minimum: 0
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleSubject'
+      example:
+        schema_version: 1
+        server_time: '2026-11-10T08:00:00Z'
+        timezone: Europe/Budapest
+        status_interval_seconds: 60
+        offline_grace_seconds: 86400
+        subjects:
+          - subject: dani
+            account: dani
+            policy:
+              enabled: true
+              daily_limit_seconds: 3600
+              windows:
+                - {day: mon, start: '08:00', end: '19:00'}
+                - {day: tue, start: '08:00', end: '19:00'}
+            usage:
+              day: '2026-11-10'
+              used_seconds: 1500
+              remaining_seconds: 2100
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, starting]
+        last_error:
+          type: string
+          maxLength: 1024
+          nullable: true
+    UsageEntry:
+      type: object
+      additionalProperties: false
+      required: [day, used_seconds]
+      properties:
+        day:
+          type: string
+          format: date
+        used_seconds:
+          type: integer
+          minimum: 0
+    StatusSubject:
+      type: object
+      additionalProperties: false
+      required: [subject, account, account_present, session_count, active, locked, usage]
+      properties:
+        subject:
+          type: string
+        account:
+          type: string
+          maxLength: 256
+        account_present:
+          type: boolean
+        session_count:
+          type: integer
+          minimum: 0
+        active:
+          type: boolean
+        locked:
+          type: boolean
+        usage:
+          type: array
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/UsageEntry'
+    ProcessStat:
+      type: object
+      additionalProperties: false
+      required: [user, name, scope, instances, memory_rss_bytes, cpu_seconds_total]
+      properties:
+        user:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [app, system]
+        instances:
+          type: integer
+          minimum: 0
+        memory_rss_bytes:
+          type: integer
+          minimum: 0
+        cpu_seconds_total:
+          type: number
+          minimum: 0
+    StatusRequest:
+      type: object
+      additionalProperties: false
+      required: [observed_at, enforcer_version, health, subjects, processes]
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        enforcer_version:
+          type: string
+        health:
+          $ref: '#/components/schemas/Health'
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusSubject'
+        collected_in_ms:
+          type: integer
+          minimum: 0
+        processes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcessStat'
+      example:
+        observed_at: '2026-11-10T08:15:00Z'
+        enforcer_version: 0.2.0
+        health:
+          status: ok
+          last_error: null
+        subjects:
+          - subject: dani
+            account: dani
+            account_present: true
+            session_count: 1
+            active: true
+            locked: false
+            usage:
+              - {day: '2026-11-10', used_seconds: 1234}
+              - {day: '2026-11-09', used_seconds: 3600}
+        collected_in_ms: 120
+        processes:
+          - user: dani
+            name: firefox
+            scope: app
+            instances: 5
+            memory_rss_bytes: 734003200
+            cpu_seconds_total: 456.7
+    DenyReason:
+      type: string
+      nullable: true
+      enum: [no_policy, disabled, outside_window, daily_limit_reached]
+    StatusResponseSubject:
+      type: object
+      required:
+        [subject, current_day, reported_used_seconds, aggregate_used_seconds,
+         daily_limit_seconds, remaining_seconds, inside_window, allowed,
+         deny_reason, acknowledged_days]
+      properties:
+        subject:
+          type: string
+        current_day:
+          type: string
+          format: date
+        reported_used_seconds:
+          type: integer
+          minimum: 0
+        aggregate_used_seconds:
+          type: integer
+          minimum: 0
+        daily_limit_seconds:
+          type: integer
+          minimum: 0
+        remaining_seconds:
+          type: integer
+          minimum: 0
+          nullable: true
+        inside_window:
+          type: boolean
+        allowed:
+          type: boolean
+        deny_reason:
+          $ref: '#/components/schemas/DenyReason'
+        acknowledged_days:
+          type: array
+          items:
+            type: string
+            format: date
+    StatusResponse:
+      type: object
+      required: [server_time, server_day, subjects]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+        server_day:
+          type: string
+          format: date
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusResponseSubject'
+      example:
+        server_time: '2026-11-10T08:15:01Z'
+        server_day: '2026-11-10'
+        subjects:
+          - subject: dani
+            current_day: '2026-11-10'
+            reported_used_seconds: 1234
+            aggregate_used_seconds: 1500
+            daily_limit_seconds: 3600
+            remaining_seconds: 2100
+            inside_window: false
+            allowed: false
+            deny_reason: outside_window
+            acknowledged_days: ['2026-11-10', '2026-11-09']

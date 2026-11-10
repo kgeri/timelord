@@ -18,11 +18,11 @@ service. On the host, from an elevated session:
 The host needs an OpenSSH server and an elevated session. Use the
 built-in Administrator, or set `LocalAccountTokenFilterPolicy` to 1 under
 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`.
-[deploy-windows.sh](../deploy-windows.sh) does both steps:
+[deploy-enforcer-windows.sh](../deploy-enforcer-windows.sh) does both steps:
 
 ```sh
-./deploy-windows.sh [user@]host
-./deploy-windows.sh --uninstall [user@]host
+./deploy-enforcer-windows.sh [user@]host
+./deploy-enforcer-windows.sh --uninstall [user@]host
 ```
 
 Logs at `%ProgramData%\TimeLord\timelord.log`. Scope is `system` for session 0,

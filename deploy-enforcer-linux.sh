@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Build TimeLord and deploy it to a host over SSH.
+# Build the TimeLord Enforcer and deploy it to a host over SSH.
 #
 # Usage:
-#   sudo ./deploy.sh [--uninstall] [user@]host
+#   sudo ./deploy-enforcer-linux.sh [--uninstall] [user@]host
 #
 # The script builds a static Linux binary, runs the tests, copies the binary and
 # the systemd unit to the host, and restarts the service. Use --uninstall to

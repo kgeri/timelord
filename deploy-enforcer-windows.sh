@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Build TimeLord for Windows and deploy it over SSH.
+# Build the TimeLord Enforcer for Windows and deploy it over SSH.
 #
 # Usage:
-#   ./deploy-windows.sh [--uninstall] [user@]host
+#   ./deploy-enforcer-windows.sh [--uninstall] [user@]host
 #
 # The script cross-compiles a Windows amd64 binary, copies the binary and a
 # PowerShell script to the host, and runs the script. The host must run an

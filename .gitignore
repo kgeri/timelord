@@ -1,2 +1,7 @@
 /timelord
+/timetower
+/timetower.json
+/timetower-state.json
+/deploy/timetower/config.json
 /dist/
+/.tmp/
