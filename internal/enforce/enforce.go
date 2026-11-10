@@ -46,6 +46,10 @@ type Engine struct {
 	used          map[string]time.Duration
 	lastTick      time.Time
 	sessionErrLog string
+
+	// lastSessions and auditReady are only touched by tick.
+	lastSessions map[string]Session
+	auditReady   bool
 }
 
 // NewEngine returns an engine for the users managed by store.
@@ -57,13 +61,14 @@ func NewEngine(source SessionSource, store *schedule.Store) *Engine {
 	}
 
 	return &Engine{
-		source:   source,
-		store:    store,
-		users:    users,
-		managed:  managed,
-		interval: DefaultInterval,
-		now:      time.Now,
-		used:     make(map[string]time.Duration),
+		source:       source,
+		store:        store,
+		users:        users,
+		managed:      managed,
+		interval:     DefaultInterval,
+		now:          time.Now,
+		used:         make(map[string]time.Duration),
+		lastSessions: make(map[string]Session),
 	}
 }
 
@@ -121,6 +126,7 @@ func (e *Engine) tick(ctx context.Context) {
 	}
 	e.clearSessionError()
 
+	e.auditSessions(sessions)
 	e.recordUsage(now, sessions)
 	e.terminateDenied(ctx, now, sessions)
 }
@@ -169,7 +175,7 @@ func (e *Engine) terminateDenied(ctx context.Context, now time.Time, sessions []
 		if e.store.Allowed(session.User, now, e.usedFor(session.User)) {
 			continue
 		}
-		log.Printf("schedule: terminating session %s for user %s", session.ID, session.User)
+		log.Printf("AUDIT: terminate user=%q session=%s reason=schedule_denied", session.User, session.ID)
 		if err := e.source.TerminateSession(ctx, session.ID); err != nil {
 			log.Printf("WARN: terminate session %s for user %s: %v", session.ID, session.User, err)
 		}
@@ -211,6 +217,52 @@ func (e *Engine) clearSessionError() {
 	}
 	e.sessionErrLog = ""
 	log.Println("session discovery recovered")
+}
+
+// auditSessions logs login, logout, lock, and unlock transitions for managed
+// users. The first observation is a baseline and is not logged.
+func (e *Engine) auditSessions(sessions []Session) {
+	current := make(map[string]Session)
+	for _, session := range sessions {
+		if session.ID == "" || !e.managed[session.User] {
+			continue
+		}
+		current[session.ID] = session
+	}
+
+	if !e.auditReady {
+		e.lastSessions = current
+		e.auditReady = true
+		return
+	}
+
+	for id, session := range current {
+		previous, ok := e.lastSessions[id]
+		if !ok {
+			logAudit("login", session)
+			continue
+		}
+		if previous.Locked != session.Locked {
+			if session.Locked {
+				logAudit("lock", session)
+			} else {
+				logAudit("unlock", session)
+			}
+		}
+	}
+
+	for id, session := range e.lastSessions {
+		if _, ok := current[id]; !ok {
+			logAudit("logout", session)
+		}
+	}
+
+	e.lastSessions = current
+}
+
+func logAudit(event string, session Session) {
+	log.Printf("AUDIT: %s user=%q session=%s seat=%q remote=%t class=%q",
+		event, session.User, session.ID, session.Seat, session.Remote, session.Class)
 }
 
 // isLocalSession reports whether the session is on a local seat. SSH and other

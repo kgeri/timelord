@@ -1,7 +1,10 @@
 package enforce
 
 import (
+	"bytes"
 	"context"
+	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +149,54 @@ func TestEngineTerminatesWithoutPolicy(t *testing.T) {
 
 	if len(source.terminated) != 1 || source.terminated[0] != "1" {
 		t.Fatalf("terminated = %v, want [1]", source.terminated)
+	}
+}
+
+func TestEngineAuditsSessionTransitions(t *testing.T) {
+	store := testStore(60)
+	source := &fakeSessionSource{sessions: []Session{{
+		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
+	}}}
+	engine := NewEngine(source, store)
+	engine.interval = time.Hour
+
+	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.Local)
+	engine.now = func() time.Time { return now }
+
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	// The first observation is only a baseline.
+	engine.tick(context.Background())
+	if strings.Contains(output.String(), "AUDIT:") {
+		t.Fatalf("first tick logged audit events: %s", output.String())
+	}
+
+	source.sessions[0].Locked = true
+	engine.tick(context.Background())
+	if !strings.Contains(output.String(), "AUDIT: lock user=\"dani\" session=1") {
+		t.Errorf("missing lock audit event:\n%s", output.String())
+	}
+
+	output.Reset()
+	source.sessions[0].Locked = false
+	engine.tick(context.Background())
+	if !strings.Contains(output.String(), "AUDIT: unlock user=\"dani\" session=1") {
+		t.Errorf("missing unlock audit event:\n%s", output.String())
+	}
+
+	output.Reset()
+	source.sessions = []Session{{
+		ID: "2", User: "dani", Seat: "seat0", Class: "user", Active: true,
+	}}
+	engine.tick(context.Background())
+	if !strings.Contains(output.String(), "AUDIT: login user=\"dani\" session=2") {
+		t.Errorf("missing login audit event:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "AUDIT: logout user=\"dani\" session=1") {
+		t.Errorf("missing logout audit event:\n%s", output.String())
 	}
 }
 

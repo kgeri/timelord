@@ -134,9 +134,11 @@ denied for the whole day.
 On Linux, TimeLord reads sessions from systemd-logind. A local session is active
 when it is on a seat, `Remote=no`, `Active=yes`, and `LockedHint=no`. Denied
 local sessions are logged out with `loginctl terminate-session`; remote sessions
-such as SSH are ignored. The session implementation lives in
-[session_linux.go](../internal/enforce/session_linux.go); the usage tracker and
-termination loop live in [enforce.go](../internal/enforce/enforce.go).
+such as SSH are ignored. Login, logout, lock, and unlock changes for managed
+users are written to the log with an `AUDIT:` prefix. The session
+implementation lives in [session_linux.go](../internal/enforce/session_linux.go);
+the usage tracker and termination loop live in
+[enforce.go](../internal/enforce/enforce.go).
 
 `timelord_schedule_remaining_seconds` reports the remaining active seconds for
 users with a positive daily limit. A managed user with no schedule reports
