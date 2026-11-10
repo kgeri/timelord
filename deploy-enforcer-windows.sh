@@ -19,6 +19,7 @@ INSTALLER_SRC="deploy/windows/install.ps1"
 UNINSTALLER_SRC="deploy/windows/uninstall.ps1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="${SCRIPT_DIR}/dist"
+TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
 
 usage() {
 	echo "usage: $(basename "$0") [--uninstall] [user@]host" >&2
@@ -89,7 +90,7 @@ echo "Copying files to ${host}..."
 scp "${DIST_DIR}/${BINARY_NAME}" "${SCRIPT_DIR}/${INSTALLER_SRC}" "${host}:"
 
 echo "Installing TimeLord..."
-if ! ssh "$host" 'powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1'; then
+if ! ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -TimetowerURL '$TIMETOWER_URL'"; then
 	echo "error: the installer failed on ${host}; see the output above." >&2
 	echo "A permissions error means the SSH session was not elevated: use the" >&2
 	echo "built-in Administrator account, or set LocalAccountTokenFilterPolicy." >&2

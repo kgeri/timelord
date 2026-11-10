@@ -80,6 +80,27 @@ paths:
         '503':
           description: Service unavailable.
 
+  /api/v1/enforcers:
+    get:
+      summary: List Enforcers and their current status
+      description: |
+        Returns every configured Enforcer, whether it is currently online, its
+        last contact time, and the current schedule state for each subject.
+      operationId: listEnforcers
+      responses:
+        '200':
+          description: Enforcer status list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnforcerList'
+        '405':
+          description: Method not allowed.
+        '500':
+          description: Internal server error.
+        '503':
+          description: Service unavailable.
+
 components:
   schemas:
     Window:
@@ -377,3 +398,78 @@ components:
             allowed: false
             deny_reason: outside_window
             acknowledged_days: ['2026-11-10', '2026-11-09']
+    EnforcerList:
+      type: object
+      required: [server_time, server_day, enforcers]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+        server_day:
+          type: string
+          format: date
+        enforcers:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnforcerStatus'
+      example:
+        server_time: '2026-11-10T08:15:01Z'
+        server_day: '2026-11-10'
+        enforcers:
+          - ip: 192.168.3.22
+            name: Dani PC
+            online: true
+            last_seen: '2026-11-10T08:15:00Z'
+            subjects:
+              - subject: dani
+                account: dani
+                used_seconds: 1500
+                daily_limit_seconds: 3600
+                remaining_seconds: 2100
+                inside_window: false
+                allowed: false
+                deny_reason: outside_window
+    EnforcerStatus:
+      type: object
+      required: [ip, name, online, last_seen, subjects]
+      properties:
+        ip:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnforcerSubjectStatus'
+    EnforcerSubjectStatus:
+      type: object
+      required:
+        [subject, account, used_seconds, daily_limit_seconds,
+         remaining_seconds, inside_window, allowed, deny_reason]
+      properties:
+        subject:
+          type: string
+        account:
+          type: string
+        used_seconds:
+          type: integer
+          minimum: 0
+        daily_limit_seconds:
+          type: integer
+          minimum: 0
+        remaining_seconds:
+          type: integer
+          minimum: 0
+          nullable: true
+        inside_window:
+          type: boolean
+        allowed:
+          type: boolean
+        deny_reason:
+          $ref: '#/components/schemas/DenyReason'

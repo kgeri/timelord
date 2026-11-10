@@ -90,3 +90,31 @@ type StatusResponseSubject struct {
 	DenyReason           *string  `json:"deny_reason"`
 	AcknowledgedDays     []string `json:"acknowledged_days"`
 }
+
+// EnforcerList is the GET /api/v1/enforcers response body.
+type EnforcerList struct {
+	ServerTime time.Time        `json:"server_time"`
+	ServerDay  string           `json:"server_day"`
+	Enforcers  []EnforcerStatus `json:"enforcers"`
+}
+
+// EnforcerStatus is the current state of one configured Enforcer.
+type EnforcerStatus struct {
+	IP       string                  `json:"ip"`
+	Name     string                  `json:"name"`
+	Online   bool                    `json:"online"`
+	LastSeen *time.Time              `json:"last_seen"`
+	Subjects []EnforcerSubjectStatus `json:"subjects"`
+}
+
+// EnforcerSubjectStatus is the current schedule state for one subject.
+type EnforcerSubjectStatus struct {
+	Subject           string  `json:"subject"`
+	Account           string  `json:"account"`
+	UsedSeconds       int64   `json:"used_seconds"`
+	DailyLimitSeconds int64   `json:"daily_limit_seconds"`
+	RemainingSeconds  *int64  `json:"remaining_seconds"`
+	InsideWindow      bool    `json:"inside_window"`
+	Allowed           bool    `json:"allowed"`
+	DenyReason        *string `json:"deny_reason"`
+}

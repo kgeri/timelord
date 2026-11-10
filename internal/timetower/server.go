@@ -2,6 +2,7 @@ package timetower
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,18 +24,25 @@ type Server struct {
 	store *Store
 	now   func() time.Time
 	mux   *http.ServeMux
+
+	mu       sync.Mutex
+	lastSeen map[string]time.Time
+	online   map[string]bool
 }
 
 // NewServer returns a Timetower API server.
 func NewServer(cfg *Config, store *Store) *Server {
 	s := &Server{
-		cfg:   cfg,
-		store: store,
-		now:   time.Now,
+		cfg:      cfg,
+		store:    store,
+		now:      time.Now,
+		lastSeen: make(map[string]time.Time),
+		online:   make(map[string]bool),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/schedule", s.handleSchedule)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/enforcers", s.handleEnforcers)
 	s.mux = mux
 	return s
 }
@@ -57,6 +66,7 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := s.now().UTC()
+	s.markSeen(enforcer, now)
 	day := now.In(s.cfg.Location()).Format(dateLayout)
 	response := Schedule{
 		SchemaVersion:         SchemaVersion,
@@ -124,6 +134,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.markSeen(enforcer, now)
 	s.store.SetStatus(enforcer.Name, StatusRecord{
 		Enforcer:   enforcer.Name,
 		ReceivedAt: now,
@@ -136,6 +147,131 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	response := s.statusResponse(enforcer, acknowledged, now, serverDay)
 	writeRevision(w, s.cfg.Revision())
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleEnforcers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.enforcerList(s.now().UTC()))
+}
+
+// Monitor logs Enforcer connection and heartbeat-loss transitions.
+func (s *Server) Monitor(ctx context.Context) {
+	interval := time.Duration(s.cfg.StatusIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.checkTimeouts(now.UTC())
+		}
+	}
+}
+
+func (s *Server) markSeen(enforcer *Enforcer, now time.Time) {
+	s.mu.Lock()
+	wasOnline := s.online[enforcer.Name]
+	s.online[enforcer.Name] = true
+	s.lastSeen[enforcer.Name] = now
+	s.mu.Unlock()
+
+	if !wasOnline {
+		log.Printf("INFO: enforcer %q connected from %s", enforcer.Name, enforcer.IP)
+	}
+}
+
+func (s *Server) checkTimeouts(now time.Time) {
+	timeout := 3 * time.Duration(s.cfg.StatusIntervalSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 3 * time.Minute
+	}
+
+	type lostEnforcer struct {
+		name string
+		last time.Time
+	}
+	var lost []lostEnforcer
+
+	s.mu.Lock()
+	for name, last := range s.lastSeen {
+		if s.online[name] && now.Sub(last) > timeout {
+			s.online[name] = false
+			lost = append(lost, lostEnforcer{name: name, last: last})
+		}
+	}
+	s.mu.Unlock()
+
+	for _, enforcer := range lost {
+		log.Printf("WARN: enforcer %q heartbeat lost (last seen %s)", enforcer.name, enforcer.last.UTC().Format(time.RFC3339))
+	}
+}
+
+func (s *Server) presence(name string) (bool, *time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	online := s.online[name]
+	last, ok := s.lastSeen[name]
+	if !ok {
+		return online, nil
+	}
+	last = last.UTC()
+	return online, &last
+}
+
+func (s *Server) enforcerList(now time.Time) EnforcerList {
+	loc := s.cfg.Location()
+	day := now.In(loc).Format(dateLayout)
+	response := EnforcerList{
+		ServerTime: now,
+		ServerDay:  day,
+		Enforcers:  make([]EnforcerStatus, 0, len(s.cfg.Enforcers)),
+	}
+
+	for i := range s.cfg.Enforcers {
+		enforcer := &s.cfg.Enforcers[i]
+		online, lastSeen := s.presence(enforcer.Name)
+		status := EnforcerStatus{
+			IP:       enforcer.IP,
+			Name:     enforcer.Name,
+			Online:   online,
+			LastSeen: lastSeen,
+			Subjects: make([]EnforcerSubjectStatus, 0, len(enforcer.Accounts)),
+		}
+		for _, account := range enforcer.Accounts {
+			subject, ok := s.cfg.SubjectByID(account.Subject)
+			if !ok {
+				continue
+			}
+			policy := subject.Policy
+			used := s.store.AggregateUsage(subject.ID, day)
+			inside := policy.InsideWindow(now, loc)
+			allowed := policy.Allowed(now, used, loc)
+			var limit int64
+			if policy != nil {
+				limit = policy.DailyLimitSeconds
+			}
+			status.Subjects = append(status.Subjects, EnforcerSubjectStatus{
+				Subject:           subject.ID,
+				Account:           account.Account,
+				UsedSeconds:       used,
+				DailyLimitSeconds: limit,
+				RemainingSeconds:  remainingSeconds(policy, used),
+				InsideWindow:      inside,
+				Allowed:           allowed,
+				DenyReason:        denyReason(policy, inside, limit, used),
+			})
+		}
+		response.Enforcers = append(response.Enforcers, status)
+	}
+	return response
 }
 
 func (s *Server) statusResponse(enforcer *Enforcer, acknowledged map[string][]string, now time.Time, serverDay string) StatusResponse {

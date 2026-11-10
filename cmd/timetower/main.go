@@ -35,9 +35,10 @@ func main() {
 	cutoff := time.Now().In(config.Location()).AddDate(0, 0, -400).Format("2006-01-02")
 	store.PruneUsage(cutoff)
 
+	api := timetower.NewServer(config, store)
 	httpServer := &http.Server{
 		Addr:              *listen,
-		Handler:           timetower.NewServer(config, store),
+		Handler:           api,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -46,6 +47,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go api.Monitor(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {

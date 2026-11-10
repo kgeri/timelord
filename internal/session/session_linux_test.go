@@ -1,6 +1,6 @@
 //go:build linux
 
-package enforce
+package session
 
 import (
 	"context"

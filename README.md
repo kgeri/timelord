@@ -31,7 +31,7 @@ The Enforcer daemon is built from `cmd/timelord`:
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo ./timelord -user dani # root/LocalSystem can see other users
+sudo ./timelord -timetower https://timetower.ogreg.org
 curl http://127.0.0.1:9220/metrics
 ```
 
@@ -46,21 +46,16 @@ the address). See [docs/Model.md](docs/Model.md).
 
 ## Schedule
 
-TimeLord reads `~/timelord-schedule.json` from each user selected with the
-repeatable `-user` flag. A missing file means that user is allowed no time. The
-file is watched and reloaded automatically. On Linux, denied local sessions
-are logged out via `systemd-logind`; remote sessions such as SSH are ignored.
+The Enforcer fetches its schedule from Timetower on startup and reports status
+at the interval Timetower provides. Timetower is the source of truth; the
+Enforcer reads no schedule or usage files from user home directories.
 
-See [docs/Model.md](docs/Model.md#schedule-data-model) and the sample
-[timelord-schedule.dani.json](timelord-schedule.dani.json).
-
-Daily usage is persisted in `~/timelord-schedule.csv` and restored on startup.
-The deployment script currently passes `-user dani`. The remaining daily time
-is exported as `timelord_schedule_remaining_seconds{user="dani"}`.
-
-Upload Dani's schedule to the default `dani@dani` host with:
+On Linux, denied local sessions are logged out via `systemd-logind`; remote
+sessions such as SSH are ignored. The remaining daily time for every configured
+Enforcer is available from:
 
 ```sh
-./deploy-schedule.sh
-# or: ./deploy-schedule.sh user@host path/to/timelord-schedule.json
+curl https://timetower.ogreg.org/api/v1/enforcers
 ```
+
+See [docs/Timetower.md](docs/Timetower.md).

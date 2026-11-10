@@ -50,6 +50,11 @@ func (s *Scheduler) SetInterval(interval time.Duration) {
 	s.interval = interval
 }
 
+// Update refreshes the cache with the latest process list immediately.
+func (s *Scheduler) Update() {
+	s.update()
+}
+
 // update refreshes the cache with the latest process list.
 func (s *Scheduler) update() {
 	processes, err := s.lister.List()

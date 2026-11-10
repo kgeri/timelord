@@ -20,13 +20,17 @@ The Windows service name. Defaults to TimeLord.
 
 .PARAMETER ListenPort
 The metrics port to open in the firewall. Defaults to 9220.
+
+.PARAMETER TimetowerURL
+The Timetower base URL. Defaults to https://timetower.ogreg.org.
 #>
 [CmdletBinding()]
 param(
     [string]$BinaryPath = '',
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'TimeLord'),
     [string]$ServiceName = 'TimeLord',
-    [int]$ListenPort = 9220
+    [int]$ListenPort = 9220,
+    [string]$TimetowerURL = 'https://timetower.ogreg.org'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,7 +84,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Registering the $ServiceName service (LocalSystem, automatic)..."
 New-Service -Name $ServiceName `
-    -BinaryPathName "`"$target`" -listen 0.0.0.0:$ListenPort" `
+    -BinaryPathName "`"$target`" -listen 0.0.0.0:$ListenPort -timetower `"$TimetowerURL`"" `
     -DisplayName 'TimeLord' `
     -StartupType Automatic | Out-Null
 sc.exe description $ServiceName 'TimeLord process monitor' | Out-Null

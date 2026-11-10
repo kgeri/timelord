@@ -5,7 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
-# deploy-enforcer-linux.sh adds one -user flag for each managed user.
+# deploy-enforcer-linux.sh sets the Timetower URL.
 ExecStart=/usr/local/bin/timelord -listen 0.0.0.0:9220
 Restart=on-failure
 RestartSec=5s

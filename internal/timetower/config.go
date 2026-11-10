@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"timelord/internal/schedule"
+	"timelord/internal/policy"
 )
 
 const (
@@ -44,9 +44,9 @@ type Subject struct {
 
 // Policy is a subject's permitted windows and daily limit.
 type Policy struct {
-	Enabled           bool              `json:"enabled"`
-	DailyLimitSeconds int64             `json:"daily_limit_seconds"`
-	Windows           []schedule.Window `json:"windows"`
+	Enabled           bool            `json:"enabled"`
+	DailyLimitSeconds int64           `json:"daily_limit_seconds"`
+	Windows           []policy.Window `json:"windows"`
 }
 
 // Enforcer is one managed host and the accounts it enforces.
@@ -232,7 +232,7 @@ func (p *Policy) InsideWindow(now time.Time, loc *time.Location) bool {
 	}
 	local := now.In(loc)
 	day := weekdayDays[int(local.Weekday())]
-	clock := schedule.Clock(local.Hour()*60 + local.Minute())
+	clock := policy.Clock(local.Hour()*60 + local.Minute())
 	for _, window := range p.Windows {
 		if window.Day == day && window.Start <= clock && clock < window.End {
 			return true
@@ -249,12 +249,12 @@ func (p *Policy) Allowed(now time.Time, usedSeconds int64, loc *time.Location) b
 	return p.DailyLimitSeconds == 0 || usedSeconds < p.DailyLimitSeconds
 }
 
-var weekdayDays = [...]schedule.Day{
-	schedule.Sunday,
-	schedule.Monday,
-	schedule.Tuesday,
-	schedule.Wednesday,
-	schedule.Thursday,
-	schedule.Friday,
-	schedule.Saturday,
+var weekdayDays = [...]policy.Day{
+	policy.Sunday,
+	policy.Monday,
+	policy.Tuesday,
+	policy.Wednesday,
+	policy.Thursday,
+	policy.Friday,
+	policy.Saturday,
 }

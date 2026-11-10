@@ -23,10 +23,7 @@ REMOTE_TMP="/tmp/${BINARY_NAME}.new"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_SRC="${SCRIPT_DIR}/deploy/${UNIT_NAME}"
 DIST_DIR="${SCRIPT_DIR}/dist"
-
-# Users whose schedules TimeLord enforces. The service flag is repeatable; the
-# deployment script currently manages only Dani.
-MANAGED_USERS=(dani)
+TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
 
 # The user that invoked sudo owns the Go toolchain and its caches. Run the build
 # tools as that user, not as root.
@@ -140,10 +137,7 @@ ssh "$host" "
 echo "Installing the systemd unit..."
 unit_build="$(mktemp)"
 trap 'rm -f "$unit_build"' EXIT
-exec_start="${INSTALL_PATH} -listen 0.0.0.0:9220"
-for managed_user in "${MANAGED_USERS[@]}"; do
-	exec_start="${exec_start} -user ${managed_user}"
-done
+exec_start="${INSTALL_PATH} -listen 0.0.0.0:9220 -timetower ${TIMETOWER_URL}"
 sed "s|^ExecStart=.*$|ExecStart=${exec_start}|" "$UNIT_SRC" > "$unit_build"
 scp "$unit_build" "${host}:${UNIT_PATH}.new"
 ssh "$host" "

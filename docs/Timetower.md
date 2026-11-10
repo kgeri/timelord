@@ -8,8 +8,8 @@ Timetower identifies an Enforcer by the source IP address of its request. The
 address-to-Enforcer mapping is static configuration. The service is intended for
 LAN use only.
 
-Schedules, usage, and status are stored by Timetower. Enforcers do not read
-schedule or usage files from user home directories.
+Schedules, usage, and status are stored by Timetower. Enforcers do not use
+schedule or usage files.
 
 The API contract is in [openapi.yaml](openapi.yaml).
 
@@ -38,9 +38,9 @@ falling back to `X-Real-IP` and the direct peer address.
 
 ### Enforcer
 
-An Enforcer represents one managed host. It is identified by its source IP
-address. Its configured name, subjects, and OS accounts are static
-configuration. Host details such as version, health, sessions, and process
+An Enforcer represents one managed host. It is identified by the client IP
+forwarded by the ingress. Its configured name, subjects, and OS accounts are
+static configuration. Host details such as version, health, sessions, and process
 statistics are reported in the status request.
 
 ### Subject and policy
@@ -79,12 +79,13 @@ status per Enforcer.
 
 Both schedule and status responses carry an `X-Schedule-Revision` header.
 When the status response returns a different revision than the one the
-Enforcer cached from the schedule, the Enforcer fetches the schedule again.
+Enforcer remembered from the schedule, the Enforcer fetches the schedule again.
 
 ## Enforcer lifecycle
 
-1. The Enforcer loads its configuration and offline cache.
-2. It fetches the schedule from `GET /api/v1/schedule`.
+1. The Enforcer starts with its Timetower URL.
+2. It fetches the schedule from `GET /api/v1/schedule`. A failed initial
+   fetch is a startup failure.
 3. It starts enforcement and status timers.
 4. It sends `PUT /api/v1/status` every `status_interval_seconds`.
 5. It fetches the schedule again when `X-Schedule-Revision` changes.
@@ -118,18 +119,15 @@ termination events are logged with the `AUDIT:` prefix.
 
 ## Offline operation
 
-The Enforcer keeps a root-owned cache containing the last schedule, policy time
-zone, intervals, usage counters, aggregate usage, and clock offset.
+The Enforcer keeps the last schedule, policy time zone, usage counters, and
+aggregate usage in memory. It reads and writes no schedule or usage files.
 
-When Timetower is unreachable, the Enforcer continues with the cached schedule
-and usage while the cache is younger than `offline_grace_seconds`. After that
-grace period it denies all configured subjects until a successful sync. Pending
-usage is reported on the next successful status request.
-
-If no cache exists and Timetower is unreachable, the Enforcer has no subjects,
-logs a critical error, and retries with backoff.
-
-The cache is not a schedule source and is not writable by managed users.
+If Timetower is unreachable at startup, the Enforcer exits and the service
+manager restarts it. If contact is lost later, the Enforcer keeps enforcing the
+in-memory schedule and estimates usage locally. After `offline_grace_seconds`
+without a successful schedule or status call, it denies all configured subjects
+until a sync succeeds. Pending usage is reported on the next successful status
+request.
 
 ## Time
 
@@ -146,10 +144,14 @@ charging suspend or stall time.
 |--------|------|---------|
 | `GET` | `/api/v1/schedule` | Fetch the Enforcer's policy, usage, and remaining time. |
 | `PUT` | `/api/v1/status` | Report health, usage, session state, and process statistics. |
+| `GET` | `/api/v1/enforcers` | List configured Enforcers, online state, last contact, and remaining time. |
 
-Both success responses carry `X-Schedule-Revision`. The Enforcer caches the
-value from the schedule and fetches the schedule again when a status response
-returns a different value.
+Both schedule and status success responses carry `X-Schedule-Revision`. The
+Enforcer remembers the value from the schedule and fetches the schedule again
+when a status response returns a different value.
+
+Timetower logs when an Enforcer transitions online and when its heartbeat is
+lost after three status intervals.
 
 Timetower serves plain HTTP. The k3s ingress terminates TLS for
 `timetower.ogreg.org`.
@@ -157,7 +159,8 @@ Timetower serves plain HTTP. The k3s ingress terminates TLS for
 ## Storage and retention
 
 Timetower reads its static configuration and stores daily usage and the latest
-status per Enforcer in its state file.
+status per Enforcer in its state file. The Enforcer stores no schedule or usage
+files.
 
 Daily usage is retained for 400 days. The latest status is retained per
 Enforcer.

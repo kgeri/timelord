@@ -65,7 +65,7 @@ timelord_process_instances{name="bash",scope="system",user="alice"} 1
 }
 
 func TestServerListen(t *testing.T) {
-	server := NewServer("127.0.0.1:0", process.NewCache(), nil)
+	server := NewServer("127.0.0.1:0", process.NewCache())
 
 	if err := server.Listen(); err != nil {
 		t.Fatalf("Listen() error = %v", err)
@@ -88,7 +88,7 @@ func TestServerListenConflict(t *testing.T) {
 	}
 	defer taken.Close()
 
-	server := NewServer(taken.Addr().String(), process.NewCache(), nil)
+	server := NewServer(taken.Addr().String(), process.NewCache())
 	if err := server.Listen(); err == nil {
 		t.Error("Listen() = nil, want an address-in-use error")
 	}
@@ -100,7 +100,7 @@ func TestServerServesMetrics(t *testing.T) {
 		{PID: 1001, StartTime: 1, User: "alice", Name: "bash", Executable: "/bin/bash", Scope: process.ScopeApp},
 	})
 
-	server := NewServer(":0", cache, nil)
+	server := NewServer(":0", cache)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()

@@ -67,6 +67,84 @@ func TestScheduleUsesForwardedClientIP(t *testing.T) {
 	}
 }
 
+func TestEnforcersListing(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var listing EnforcerList
+	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("decode listing: %v", err)
+	}
+	if len(listing.Enforcers) != 1 {
+		t.Fatalf("len(Enforcers) = %d, want 1", len(listing.Enforcers))
+	}
+	enforcer := listing.Enforcers[0]
+	if enforcer.Name != "test-pc" || enforcer.Online {
+		t.Errorf("enforcer = %+v, want test-pc offline", enforcer)
+	}
+	if enforcer.LastSeen != nil {
+		t.Errorf("LastSeen = %v, want nil", enforcer.LastSeen)
+	}
+	if len(enforcer.Subjects) != 1 {
+		t.Fatalf("len(Subjects) = %d, want 1", len(enforcer.Subjects))
+	}
+	if remaining := enforcer.Subjects[0].RemainingSeconds; remaining == nil || *remaining != 3600 {
+		t.Errorf("RemainingSeconds = %v, want 3600", remaining)
+	}
+
+	if rec := putStatus(t, server, statusBody(1200)); rec.Code != http.StatusOK {
+		t.Fatalf("status update = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	listing = EnforcerList{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("decode listing after status: %v", err)
+	}
+	enforcer = listing.Enforcers[0]
+	if !enforcer.Online {
+		t.Error("Online = false, want true")
+	}
+	if enforcer.LastSeen == nil {
+		t.Error("LastSeen = nil, want timestamp")
+	}
+	subject := enforcer.Subjects[0]
+	if subject.UsedSeconds != 1200 || subject.RemainingSeconds == nil || *subject.RemainingSeconds != 2400 {
+		t.Errorf("subject usage = %+v, want used 1200 remaining 2400", subject)
+	}
+}
+
+func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+	if rec := putStatus(t, server, statusBody(1200)); rec.Code != http.StatusOK {
+		t.Fatalf("status update = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	server.checkTimeouts(testNow().Add(4 * time.Minute))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	var listing EnforcerList
+	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("decode listing: %v", err)
+	}
+	if listing.Enforcers[0].Online {
+		t.Error("Online = true after heartbeat timeout, want false")
+	}
+	if listing.Enforcers[0].LastSeen == nil {
+		t.Error("LastSeen = nil, want the previous heartbeat time")
+	}
+}
+
 func TestScheduleUnknownEnforcer(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 

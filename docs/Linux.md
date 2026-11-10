@@ -4,7 +4,7 @@
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo ./timelord
+sudo ./timelord -timetower https://timetower.ogreg.org
 ```
 
 TimeLord must run as root to read the executable path and memory of other
@@ -13,15 +13,15 @@ users' processes. The source is
 
 ## Schedule enforcement
 
-Pass one `-user` flag for each managed user. TimeLord reads
-`~/timelord-schedule.json` from that user's home and watches it for changes.
+The Enforcer fetches its schedule from Timetower on startup and reports status
+at the interval Timetower provides. It reads no schedule or usage files.
+
 Sessions come from systemd-logind: active, unlocked local sessions count toward
 the daily limit, and a denied session is logged out with
 `loginctl terminate-session`. Remote sessions such as SSH are ignored. Login,
 logout, lock, and unlock transitions for managed users are logged with an
-`AUDIT:` prefix. Daily usage is restored from and saved to
-`~/timelord-schedule.csv`. The source is
-[internal/enforce](../internal/enforce).
+`AUDIT:` prefix. The sources are [internal/enforcer](../internal/enforcer) and
+[internal/session](../internal/session).
 
 ## Deploy
 
@@ -32,6 +32,9 @@ installs it and the systemd unit, and restarts the service:
 sudo ./deploy-enforcer-linux.sh [user@]host
 sudo ./deploy-enforcer-linux.sh --uninstall [user@]host
 ```
+
+Set `TIMETOWER_URL` to override the default
+`https://timetower.ogreg.org`.
 
 - Unit: [deploy/timelord.service](../deploy/timelord.service)
 - Scope: [internal/process/lister_linux.go](../internal/process/lister_linux.go)

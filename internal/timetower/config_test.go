@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"timelord/internal/schedule"
+	"timelord/internal/policy"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -59,7 +59,7 @@ func TestLoadDefaultConfig(t *testing.T) {
 		t.Fatalf("default daily limit = %+v, want 3600 seconds", subject.Policy)
 	}
 	for _, window := range subject.Policy.Windows {
-		if window.Day == schedule.Tuesday && window.End.String() != "20:30" {
+		if window.Day == policy.Tuesday && window.End.String() != "20:30" {
 			t.Errorf("Tuesday end = %s, want 20:30", window.End)
 		}
 	}
@@ -135,9 +135,9 @@ func TestPolicyInsideWindow(t *testing.T) {
 	policy := &Policy{
 		Enabled:           true,
 		DailyLimitSeconds: 3600,
-		Windows: []schedule.Window{
-			{Day: schedule.Monday, Start: 8 * 60, End: 12 * 60},
-			{Day: schedule.Monday, Start: 13 * 60, End: 19 * 60},
+		Windows: []policy.Window{
+			{Day: policy.Monday, Start: 8 * 60, End: 12 * 60},
+			{Day: policy.Monday, Start: 13 * 60, End: 19 * 60},
 		},
 	}
 	location := time.UTC
