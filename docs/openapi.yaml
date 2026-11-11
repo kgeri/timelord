@@ -3,21 +3,23 @@ info:
   title: Timetower API
   version: 1.0.0
   description: |
-    Schedule and status service for TimeLord Enforcers. Enforcers are
-    identified by the client IP forwarded by the ingress. Timestamps are UTC
-    RFC 3339; durations are integer seconds.
+    Schedule and status service for TimeLord Enforcers. Enforcers authenticate
+    with a shared bearer key. Users are addressed by account name. Timestamps
+    are UTC RFC 3339; durations are integer seconds.
 servers:
   - url: https://timetower.ogreg.org
-security: []
 
 paths:
-  /api/v1/schedule:
+  /api/v1/schedule/{user}:
     get:
-      summary: Get the Enforcer schedule
+      summary: Get a user's schedule
       description: |
-        Returns the policy and remaining daily time for the Enforcer identified
-        by the request's source IP address.
+        Returns the policy and remaining daily time for the requested account.
       operationId: getSchedule
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/User'
       responses:
         '200':
           description: Current schedule.
@@ -31,21 +33,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Schedule'
-        '403':
-          description: The source IP address is not configured.
+        '401':
+          description: Missing or invalid bearer key.
+        '404':
+          description: The user is not configured.
         '500':
           description: Internal server error.
         '503':
           description: Service unavailable.
 
-  /api/v1/status:
+  /api/v1/status/{user}:
     put:
-      summary: Report Enforcer status
+      summary: Report a user's status
       description: |
-        Replaces the Enforcer's current status and process statistics. The
-        response's `X-Schedule-Revision` header tells the Enforcer whether it
-        needs to fetch `/api/v1/schedule` again.
+        Reports one user's session state, usage counters, and process
+        statistics. The response's `X-Schedule-Revision` header tells the
+        Enforcer whether it needs to fetch schedules again.
       operationId: putStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/User'
       requestBody:
         required: true
         content:
@@ -67,10 +75,12 @@ paths:
                 $ref: '#/components/schemas/StatusResponse'
         '400':
           description: Malformed request.
-        '403':
-          description: The source IP address is not configured.
+        '401':
+          description: Missing or invalid bearer key.
+        '404':
+          description: The user is not configured.
         '409':
-          description: Status conflicts with the server's current policy day.
+          description: Usage day is later than the server's policy day.
         '413':
           description: Request body exceeds the configured limit.
         '422':
@@ -82,11 +92,12 @@ paths:
 
   /api/v1/enforcers:
     get:
-      summary: List Enforcers and their current status
+      summary: List reporting hosts
       description: |
-        Returns every configured Enforcer, whether it is currently online, its
-        last contact time, and the current schedule state for each subject.
+        Returns every hostname that has reported status, whether it is online,
+        its last contact time, and the current state of each user it reports.
       operationId: listEnforcers
+      security: []
       responses:
         '200':
           description: Enforcer status list.
@@ -102,6 +113,21 @@ paths:
           description: Service unavailable.
 
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Shared TIMELORD_KEY bearer token.
+
+  parameters:
+    User:
+      name: user
+      in: path
+      required: true
+      description: Account name.
+      schema:
+        type: string
+
   schemas:
     Window:
       type: object
@@ -139,7 +165,7 @@ components:
         daily_limit_seconds: 3600
         windows:
           - {day: mon, start: '08:00', end: '19:00'}
-          - {day: tue, start: '08:00', end: '19:00'}
+          - {day: tue, start: '08:00', end: '20:30'}
     UsageState:
       type: object
       required: [day, used_seconds, remaining_seconds]
@@ -155,27 +181,11 @@ components:
           minimum: 0
           nullable: true
           description: Remaining seconds for the day; `null` when there is no daily limit.
-    ScheduleSubject:
-      type: object
-      required: [subject, account, policy, usage]
-      properties:
-        subject:
-          type: string
-        account:
-          type: string
-          maxLength: 256
-        policy:
-          type: object
-          allOf:
-            - $ref: '#/components/schemas/Policy'
-          nullable: true
-        usage:
-          $ref: '#/components/schemas/UsageState'
     Schedule:
       type: object
       required:
         [schema_version, server_time, timezone, status_interval_seconds,
-         offline_grace_seconds, subjects]
+         offline_grace_seconds, user, policy, usage]
       properties:
         schema_version:
           type: integer
@@ -192,29 +202,31 @@ components:
         offline_grace_seconds:
           type: integer
           minimum: 0
-        subjects:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScheduleSubject'
+        user:
+          type: string
+        policy:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Policy'
+          nullable: true
+        usage:
+          $ref: '#/components/schemas/UsageState'
       example:
         schema_version: 1
         server_time: '2026-11-10T08:00:00Z'
         timezone: Europe/Budapest
         status_interval_seconds: 60
         offline_grace_seconds: 86400
-        subjects:
-          - subject: dani
-            account: dani
-            policy:
-              enabled: true
-              daily_limit_seconds: 3600
-              windows:
-                - {day: mon, start: '08:00', end: '19:00'}
-                - {day: tue, start: '08:00', end: '19:00'}
-            usage:
-              day: '2026-11-10'
-              used_seconds: 1500
-              remaining_seconds: 2100
+        user: dani
+        policy:
+          enabled: true
+          daily_limit_seconds: 3600
+          windows:
+            - {day: mon, start: '08:00', end: '19:00'}
+        usage:
+          day: '2026-11-10'
+          used_seconds: 1500
+          remaining_seconds: 2100
     Health:
       type: object
       additionalProperties: false
@@ -238,30 +250,6 @@ components:
         used_seconds:
           type: integer
           minimum: 0
-    StatusSubject:
-      type: object
-      additionalProperties: false
-      required: [subject, account, account_present, session_count, active, locked, usage]
-      properties:
-        subject:
-          type: string
-        account:
-          type: string
-          maxLength: 256
-        account_present:
-          type: boolean
-        session_count:
-          type: integer
-          minimum: 0
-        active:
-          type: boolean
-        locked:
-          type: boolean
-        usage:
-          type: array
-          maxItems: 7
-          items:
-            $ref: '#/components/schemas/UsageEntry'
     ProcessStat:
       type: object
       additionalProperties: false
@@ -286,19 +274,32 @@ components:
     StatusRequest:
       type: object
       additionalProperties: false
-      required: [observed_at, enforcer_version, health, subjects, processes]
+      required:
+        [observed_at, enforcer_version, hostname, health, active, locked,
+         session_count, usage, processes]
       properties:
         observed_at:
           type: string
           format: date-time
         enforcer_version:
           type: string
+        hostname:
+          type: string
+          maxLength: 256
         health:
           $ref: '#/components/schemas/Health'
-        subjects:
+        active:
+          type: boolean
+        locked:
+          type: boolean
+        session_count:
+          type: integer
+          minimum: 0
+        usage:
           type: array
+          maxItems: 7
           items:
-            $ref: '#/components/schemas/StatusSubject'
+            $ref: '#/components/schemas/UsageEntry'
         collected_in_ms:
           type: integer
           minimum: 0
@@ -309,19 +310,16 @@ components:
       example:
         observed_at: '2026-11-10T08:15:00Z'
         enforcer_version: 0.2.0
+        hostname: dani
         health:
           status: ok
           last_error: null
-        subjects:
-          - subject: dani
-            account: dani
-            account_present: true
-            session_count: 1
-            active: true
-            locked: false
-            usage:
-              - {day: '2026-11-10', used_seconds: 1234}
-              - {day: '2026-11-09', used_seconds: 3600}
+        active: true
+        locked: false
+        session_count: 1
+        usage:
+          - {day: '2026-11-10', used_seconds: 1234}
+          - {day: '2026-11-09', used_seconds: 3600}
         collected_in_ms: 120
         processes:
           - user: dani
@@ -334,14 +332,20 @@ components:
       type: string
       nullable: true
       enum: [no_policy, disabled, outside_window, daily_limit_reached]
-    StatusResponseSubject:
+    StatusResponse:
       type: object
       required:
-        [subject, current_day, reported_used_seconds, aggregate_used_seconds,
-         daily_limit_seconds, remaining_seconds, inside_window, allowed,
-         deny_reason, acknowledged_days]
+        [server_time, server_day, user, current_day, reported_used_seconds,
+         aggregate_used_seconds, daily_limit_seconds, remaining_seconds,
+         inside_window, allowed, deny_reason, acknowledged_days]
       properties:
-        subject:
+        server_time:
+          type: string
+          format: date-time
+        server_day:
+          type: string
+          format: date
+        user:
           type: string
         current_day:
           type: string
@@ -370,34 +374,19 @@ components:
           items:
             type: string
             format: date
-    StatusResponse:
-      type: object
-      required: [server_time, server_day, subjects]
-      properties:
-        server_time:
-          type: string
-          format: date-time
-        server_day:
-          type: string
-          format: date
-        subjects:
-          type: array
-          items:
-            $ref: '#/components/schemas/StatusResponseSubject'
       example:
         server_time: '2026-11-10T08:15:01Z'
         server_day: '2026-11-10'
-        subjects:
-          - subject: dani
-            current_day: '2026-11-10'
-            reported_used_seconds: 1234
-            aggregate_used_seconds: 1500
-            daily_limit_seconds: 3600
-            remaining_seconds: 2100
-            inside_window: false
-            allowed: false
-            deny_reason: outside_window
-            acknowledged_days: ['2026-11-10', '2026-11-09']
+        user: dani
+        current_day: '2026-11-10'
+        reported_used_seconds: 1234
+        aggregate_used_seconds: 1500
+        daily_limit_seconds: 3600
+        remaining_seconds: 2100
+        inside_window: false
+        allowed: false
+        deny_reason: outside_window
+        acknowledged_days: ['2026-11-10', '2026-11-09']
     EnforcerList:
       type: object
       required: [server_time, server_day, enforcers]
@@ -416,13 +405,11 @@ components:
         server_time: '2026-11-10T08:15:01Z'
         server_day: '2026-11-10'
         enforcers:
-          - ip: 192.168.3.22
-            name: Dani PC
+          - hostname: dani
             online: true
             last_seen: '2026-11-10T08:15:00Z'
-            subjects:
-              - subject: dani
-                account: dani
+            users:
+              - user: dani
                 used_seconds: 1500
                 daily_limit_seconds: 3600
                 remaining_seconds: 2100
@@ -431,11 +418,9 @@ components:
                 deny_reason: outside_window
     EnforcerStatus:
       type: object
-      required: [ip, name, online, last_seen, subjects]
+      required: [hostname, online, last_seen, users]
       properties:
-        ip:
-          type: string
-        name:
+        hostname:
           type: string
         online:
           type: boolean
@@ -443,19 +428,17 @@ components:
           type: string
           format: date-time
           nullable: true
-        subjects:
+        users:
           type: array
           items:
-            $ref: '#/components/schemas/EnforcerSubjectStatus'
-    EnforcerSubjectStatus:
+            $ref: '#/components/schemas/UserStatus'
+    UserStatus:
       type: object
       required:
-        [subject, account, used_seconds, daily_limit_seconds,
-         remaining_seconds, inside_window, allowed, deny_reason]
+        [user, used_seconds, daily_limit_seconds, remaining_seconds,
+         inside_window, allowed, deny_reason]
       properties:
-        subject:
-          type: string
-        account:
+        user:
           type: string
         used_seconds:
           type: integer

@@ -35,6 +35,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# TODO: install TIMELORD_KEY in a protected service environment or key file
+# when Windows Enforcers are supported.
+
 # $PSScriptRoot is not reliably populated in the param block, so resolve the
 # default binary next to this script after binding.
 if (-not $BinaryPath) {

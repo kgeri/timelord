@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"timelord/internal/enforcer"
 	"timelord/internal/metrics"
@@ -21,6 +23,8 @@ func main() {
 	listen := flag.String("listen", "0.0.0.0:9220", "address for the metrics endpoint")
 	timetowerURL := flag.String("timetower", "https://timetower.ogreg.org", "Timetower base URL")
 	selfTestOnly := flag.Bool("selftest", false, "run the startup self-test and exit")
+	var users userList
+	flag.Var(&users, "user", "account to manage; repeat the flag for multiple users")
 	flag.Parse()
 
 	if *selfTestOnly {
@@ -57,11 +61,29 @@ func main() {
 			return nil
 		}
 
+		if len(users) == 0 {
+			return fmt.Errorf("no -user option given")
+		}
+		key := os.Getenv("TIMELORD_KEY")
+		if key == "" {
+			return fmt.Errorf("TIMELORD_KEY is not set")
+		}
+		hostname := strings.TrimSpace(os.Getenv("TIMELORD_HOSTNAME"))
+		if hostname == "" {
+			var err error
+			hostname, err = os.Hostname()
+			if err != nil {
+				return fmt.Errorf("get hostname: %w", err)
+			}
+		}
+
 		agent := enforcer.New(enforcer.Config{
-			Client:    timetower.NewClient(*timetowerURL, enforcerVersion),
+			Client:    timetower.NewClient(*timetowerURL, enforcerVersion, key),
 			Sessions:  sessionSource,
 			Processes: cache,
 			Version:   enforcerVersion,
+			Hostname:  hostname,
+			Users:     users,
 		})
 		if err := agent.Run(ctx); err != nil {
 			return err
@@ -70,6 +92,22 @@ func main() {
 		log.Println("TimeLord stopped")
 		return nil
 	})
+}
+
+// userList collects a repeatable -user flag.
+type userList []string
+
+func (u *userList) String() string {
+	return strings.Join(*u, ",")
+}
+
+func (u *userList) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("user must not be empty")
+	}
+	*u = append(*u, value)
+	return nil
 }
 
 // runSelfTest performs the startup checks and exits with a non-zero status on

@@ -6,8 +6,9 @@
 #   sudo ./deploy-enforcer-linux.sh [--uninstall] [user@]host
 #
 # The script builds a static Linux binary, runs the tests, copies the binary and
-# the systemd unit to the host, and restarts the service. Use --uninstall to
-# stop and remove the service from the host.
+# the systemd unit to the host, installs /etc/timelord.env from secrets.env, and
+# restarts the service. Use --uninstall to stop and remove the service from the
+# host.
 #
 # It must run as root, because it logs in to the host as root.
 
@@ -24,6 +25,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_SRC="${SCRIPT_DIR}/deploy/${UNIT_NAME}"
 DIST_DIR="${SCRIPT_DIR}/dist"
 TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
+TIMELORD_USERS="${TIMELORD_USERS:-dani}"
+SECRETS_FILE="${TIMELORD_SECRETS:-${SCRIPT_DIR}/secrets.env}"
+ENV_FILE="/etc/timelord.env"
+env_build=""
+unit_build=""
+trap 'rm -f "$env_build" "$unit_build"' EXIT
 
 # The user that invoked sudo owns the Go toolchain and its caches. Run the build
 # tools as that user, not as root.
@@ -87,7 +94,7 @@ if [ "$uninstall" = true ]; then
 		systemctl stop '${UNIT_NAME}' 2>/dev/null || true
 		systemctl disable '${UNIT_NAME}' 2>/dev/null || true
 		systemctl reset-failed '${UNIT_NAME}' 2>/dev/null || true
-		rm -f '${UNIT_PATH}'
+		rm -f '${UNIT_PATH}' '${ENV_FILE}'
 		systemctl daemon-reload
 		rm -f '${INSTALL_PATH}' '${REMOTE_TMP}'
 	"
@@ -104,6 +111,22 @@ fi
 remote_uid="$(ssh "$host" id -u)"
 if [ "$remote_uid" != "0" ]; then
 	echo "error: ${host} did not log in as root (uid ${remote_uid})" >&2
+	exit 1
+fi
+
+if [ ! -f "$SECRETS_FILE" ]; then
+	echo "error: secrets file not found: ${SECRETS_FILE}" >&2
+	exit 1
+fi
+secret_mode=$(stat -c '%a' "$SECRETS_FILE" 2>/dev/null || true)
+if [ "$secret_mode" != "600" ] && [ "$secret_mode" != "400" ]; then
+	echo "error: ${SECRETS_FILE} must be mode 0600 or 0400 (currently ${secret_mode:-unknown})" >&2
+	exit 1
+fi
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+if [ -z "${TIMELORD_KEY:-}" ]; then
+	echo "error: TIMELORD_KEY is empty or missing in ${SECRETS_FILE}" >&2
 	exit 1
 fi
 
@@ -134,10 +157,20 @@ ssh "$host" "
 	rm -f '${REMOTE_TMP}'
 "
 
+echo "Installing the Timetower key..."
+env_build="$(mktemp)"
+chmod 600 "$env_build"
+printf 'TIMELORD_KEY=%s\n' "$TIMELORD_KEY" > "$env_build"
+scp "$env_build" "${host}:${ENV_FILE}.new"
+rm -f "$env_build"
+ssh "$host" "install -m 0600 -o root -g root '${ENV_FILE}.new' '${ENV_FILE}' && rm -f '${ENV_FILE}.new'"
+
 echo "Installing the systemd unit..."
 unit_build="$(mktemp)"
-trap 'rm -f "$unit_build"' EXIT
 exec_start="${INSTALL_PATH} -listen 0.0.0.0:9220 -timetower ${TIMETOWER_URL}"
+for managed_user in ${TIMELORD_USERS}; do
+	exec_start="${exec_start} -user ${managed_user}"
+done
 sed "s|^ExecStart=.*$|ExecStart=${exec_start}|" "$UNIT_SRC" > "$unit_build"
 scp "$unit_build" "${host}:${UNIT_PATH}.new"
 ssh "$host" "

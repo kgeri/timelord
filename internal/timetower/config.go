@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"net"
 	"os"
 	"time"
 
@@ -23,43 +22,28 @@ const (
 
 // Config is Timetower's static configuration.
 type Config struct {
-	Timezone              string     `json:"timezone"`
-	StatusIntervalSeconds int        `json:"status_interval_seconds"`
-	OfflineGraceSeconds   int        `json:"offline_grace_seconds"`
-	Subjects              []Subject  `json:"subjects"`
-	Enforcers             []Enforcer `json:"enforcers"`
+	Timezone              string `json:"timezone"`
+	StatusIntervalSeconds int    `json:"status_interval_seconds"`
+	OfflineGraceSeconds   int    `json:"offline_grace_seconds"`
+	Users                 []User `json:"users"`
 
-	loc           *time.Location
-	subjectsByID  map[string]*Subject
-	enforcersByIP map[string]*Enforcer
-	revision      int64
+	loc         *time.Location
+	usersByName map[string]*User
+	revision    int64
 }
 
-// Subject is a managed identity and its policy.
-type Subject struct {
-	ID          string  `json:"id"`
+// User is a managed account and its policy.
+type User struct {
+	Name        string  `json:"name"`
 	DisplayName string  `json:"display_name"`
 	Policy      *Policy `json:"policy"`
 }
 
-// Policy is a subject's permitted windows and daily limit.
+// Policy is a user's permitted windows and daily limit.
 type Policy struct {
 	Enabled           bool            `json:"enabled"`
 	DailyLimitSeconds int64           `json:"daily_limit_seconds"`
 	Windows           []policy.Window `json:"windows"`
-}
-
-// Enforcer is one managed host and the accounts it enforces.
-type Enforcer struct {
-	IP       string    `json:"ip"`
-	Name     string    `json:"name"`
-	Accounts []Account `json:"accounts"`
-}
-
-// Account maps a subject to an OS account on an Enforcer.
-type Account struct {
-	Subject string `json:"subject"`
-	Account string `json:"account"`
 }
 
 // LoadConfig reads and validates a Timetower configuration file.
@@ -102,72 +86,25 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("offline_grace_seconds must not be negative")
 	}
 
-	subjects := make(map[string]*Subject, len(c.Subjects))
-	for i := range c.Subjects {
-		subject := &c.Subjects[i]
-		if subject.ID == "" {
-			return fmt.Errorf("subjects[%d]: id is empty", i)
+	users := make(map[string]*User, len(c.Users))
+	for i := range c.Users {
+		user := &c.Users[i]
+		if user.Name == "" {
+			return fmt.Errorf("users[%d]: name is empty", i)
 		}
-		if _, ok := subjects[subject.ID]; ok {
-			return fmt.Errorf("subjects[%d]: duplicate subject %q", i, subject.ID)
+		if _, ok := users[user.Name]; ok {
+			return fmt.Errorf("users[%d]: duplicate user %q", i, user.Name)
 		}
-		if subject.DisplayName == "" {
-			subject.DisplayName = subject.ID
+		if user.DisplayName == "" {
+			user.DisplayName = user.Name
 		}
-		if err := subject.Policy.Validate(); err != nil {
-			return fmt.Errorf("subject %q: %w", subject.ID, err)
+		if err := user.Policy.Validate(); err != nil {
+			return fmt.Errorf("user %q: %w", user.Name, err)
 		}
-		subjects[subject.ID] = subject
+		users[user.Name] = user
 	}
 
-	enforcersByIP := make(map[string]*Enforcer, len(c.Enforcers))
-	names := make(map[string]bool, len(c.Enforcers))
-	for i := range c.Enforcers {
-		enforcer := &c.Enforcers[i]
-		ip := net.ParseIP(enforcer.IP)
-		if ip == nil {
-			return fmt.Errorf("enforcers[%d]: invalid IP address %q", i, enforcer.IP)
-		}
-		enforcer.IP = ip.String()
-		if _, ok := enforcersByIP[enforcer.IP]; ok {
-			return fmt.Errorf("enforcers[%d]: duplicate IP address %q", i, enforcer.IP)
-		}
-		if enforcer.Name == "" {
-			enforcer.Name = enforcer.IP
-		}
-		if names[enforcer.Name] {
-			return fmt.Errorf("enforcers[%d]: duplicate name %q", i, enforcer.Name)
-		}
-		names[enforcer.Name] = true
-
-		subjectsSeen := make(map[string]bool, len(enforcer.Accounts))
-		accountsSeen := make(map[string]bool, len(enforcer.Accounts))
-		for j, account := range enforcer.Accounts {
-			if account.Subject == "" {
-				return fmt.Errorf("enforcer %q: accounts[%d]: subject is empty", enforcer.Name, j)
-			}
-			if _, ok := subjects[account.Subject]; !ok {
-				return fmt.Errorf("enforcer %q: accounts[%d]: unknown subject %q", enforcer.Name, j, account.Subject)
-			}
-			if subjectsSeen[account.Subject] {
-				return fmt.Errorf("enforcer %q: duplicate subject %q", enforcer.Name, account.Subject)
-			}
-			subjectsSeen[account.Subject] = true
-
-			if account.Account == "" {
-				return fmt.Errorf("enforcer %q: accounts[%d]: account is empty", enforcer.Name, j)
-			}
-			if accountsSeen[account.Account] {
-				return fmt.Errorf("enforcer %q: duplicate account %q", enforcer.Name, account.Account)
-			}
-			accountsSeen[account.Account] = true
-		}
-		enforcersByIP[enforcer.IP] = enforcer
-	}
-
-	c.subjectsByID = subjects
-	c.enforcersByIP = enforcersByIP
-
+	c.usersByName = users
 	data, err := json.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("hash config: %w", err)
@@ -188,16 +125,10 @@ func (c *Config) Revision() int64 {
 	return c.revision
 }
 
-// EnforcerByIP returns the Enforcer configured for ip.
-func (c *Config) EnforcerByIP(ip string) (*Enforcer, bool) {
-	enforcer, ok := c.enforcersByIP[ip]
-	return enforcer, ok
-}
-
-// SubjectByID returns the subject with the given ID.
-func (c *Config) SubjectByID(id string) (*Subject, bool) {
-	subject, ok := c.subjectsByID[id]
-	return subject, ok
+// UserByName returns the configured user.
+func (c *Config) UserByName(name string) (*User, bool) {
+	user, ok := c.usersByName[name]
+	return user, ok
 }
 
 // Validate checks the policy's daily limit and windows.

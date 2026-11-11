@@ -35,3 +35,6 @@ system/service accounts, and known Windows component paths/packages. See
 Schedule enforcement is currently Linux-only; Windows still exposes the
 process metrics. The installer registers the service with the Timetower URL,
 but the Timetower agent is not started without a session source.
+
+TODO: Windows Enforcers will need a protected key file or service
+environment before the Timetower client is enabled.

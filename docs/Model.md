@@ -36,17 +36,17 @@ live in [lister_linux.go](../internal/process/lister_linux.go) and
 
 ## Schedule data model
 
-Timetower stores subjects, policies, Enforcers, assignments, and usage. The
-Enforcer fetches its schedule from Timetower and reports usage back; it does not
-read or write schedule or usage files. See [Timetower.md](Timetower.md) for the
+Timetower stores users, policies, reporting hostnames, and usage. The Enforcer
+fetches schedules from Timetower and reports usage back; it does not read or
+write schedule or usage files. See [Timetower.md](Timetower.md) for the
 authoritative model and API.
 
 The enforcement rules remain:
 
-- a **window** is a time of day when a subject may use the computer;
+- a **window** is a time of day when a user may use the computer;
 - a **daily limit** is the maximum active seconds per policy day;
-- a subject with no policy, a disabled policy, or no window for today is denied;
-- usage is aggregated across all Enforcers for the subject;
+- a user with no policy, a disabled policy, or no window for today is denied;
+- usage is aggregated across all hostnames for the user;
 - a daily limit of `0` means no duration limit.
 
 On Linux, sessions come from systemd-logind. A local session is active when it
@@ -57,5 +57,6 @@ written to the log with an `AUDIT:` prefix. The agent loop lives in
 [internal/enforcer](../internal/enforcer); the platform session source lives in
 [internal/session](../internal/session).
 
-The remaining daily time for every configured Enforcer is available from
-`GET /api/v1/enforcers`; it is no longer exported as a Prometheus metric.
+The remaining daily time for every reporting hostname is available from the
+public `GET /api/v1/enforcers` endpoint; it is no longer exported as a
+Prometheus metric.

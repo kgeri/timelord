@@ -62,6 +62,12 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: TIMELORD_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: timetower-secrets
+                  key: TIMELORD_KEY
           args:
             - -listen
             - 0.0.0.0:8080

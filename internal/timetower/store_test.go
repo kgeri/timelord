@@ -53,12 +53,14 @@ func TestStorePersistence(t *testing.T) {
 	}
 	store.RecordUsage("pc-one", "dani", "2024-06-03", 100)
 	store.RecordUsage("pc-two", "dani", "2024-06-03", 50)
-	store.SetStatus("pc-one", StatusRecord{
-		Enforcer:   "pc-one",
+	store.SetStatus("pc-one", "dani", StatusRecord{
+		Hostname:   "pc-one",
+		User:       "dani",
 		ReceivedAt: time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
 		Request: StatusRequest{
 			ObservedAt:      time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
 			EnforcerVersion: "0.2.0",
+			Hostname:        "pc-one",
 			Health:          Health{Status: "ok"},
 			Processes:       []ProcessStat{},
 		},
@@ -74,11 +76,11 @@ func TestStorePersistence(t *testing.T) {
 	if got := loaded.AggregateUsage("dani", "2024-06-03"); got != 150 {
 		t.Errorf("loaded AggregateUsage() = %d, want 150", got)
 	}
-	status, ok := loaded.Status("pc-one")
-	if !ok {
-		t.Fatal("loaded status for pc-one not found")
+	records := loaded.StatusRecords()
+	if len(records) != 1 {
+		t.Fatalf("len(StatusRecords()) = %d, want 1", len(records))
 	}
-	if status.Request.EnforcerVersion != "0.2.0" {
-		t.Errorf("loaded enforcer version = %q, want 0.2.0", status.Request.EnforcerVersion)
+	if records[0].Request.EnforcerVersion != "0.2.0" {
+		t.Errorf("loaded enforcer version = %q, want 0.2.0", records[0].Request.EnforcerVersion)
 	}
 }

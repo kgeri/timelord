@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,33 +17,35 @@ import (
 type Client struct {
 	baseURL string
 	version string
+	key     string
 	http    *http.Client
 }
 
 // NewClient returns a client for the Timetower server at baseURL.
-func NewClient(baseURL, version string) *Client {
+func NewClient(baseURL, version, key string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		version: version,
+		key:     key,
 		http:    &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// FetchSchedule returns the schedule and its revision.
-func (c *Client) FetchSchedule(ctx context.Context) (*Schedule, int64, error) {
+// FetchSchedule returns a user's schedule and the current revision.
+func (c *Client) FetchSchedule(ctx context.Context, user string) (*Schedule, int64, error) {
 	var schedule Schedule
-	revision, err := c.do(ctx, http.MethodGet, "/api/v1/schedule", nil, &schedule)
+	revision, err := c.do(ctx, http.MethodGet, "/api/v1/schedule/"+url.PathEscape(user), nil, &schedule)
 	if err != nil {
 		return nil, 0, err
 	}
 	return &schedule, revision, nil
 }
 
-// SendStatus reports Enforcer status and returns the server response and the
+// SendStatus reports one user's status and returns the server response and the
 // current schedule revision.
-func (c *Client) SendStatus(ctx context.Context, request StatusRequest) (*StatusResponse, int64, error) {
+func (c *Client) SendStatus(ctx context.Context, user string, request StatusRequest) (*StatusResponse, int64, error) {
 	var response StatusResponse
-	revision, err := c.do(ctx, http.MethodPut, "/api/v1/status", request, &response)
+	revision, err := c.do(ctx, http.MethodPut, "/api/v1/status/"+url.PathEscape(user), request, &response)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -64,6 +67,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) (in
 		return 0, fmt.Errorf("timetower: create request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.key)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}

@@ -3,5 +3,6 @@
 /timetower.json
 /timetower-state.json
 /deploy/timetower/config.json
+/secrets.env
 /dist/
 /.tmp/

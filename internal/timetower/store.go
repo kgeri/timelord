@@ -11,25 +11,31 @@ import (
 	"time"
 )
 
-// Store holds usage counters and the latest status per Enforcer.
+// Store holds usage counters and the latest status per hostname and user.
 type Store struct {
 	mu     sync.Mutex
 	path   string
 	usage  map[usageKey]int64
-	status map[string]StatusRecord
+	status map[statusKey]StatusRecord
 }
 
-// StatusRecord is the latest status received from an Enforcer.
+// StatusRecord is the latest status received for one hostname and user.
 type StatusRecord struct {
-	Enforcer   string        `json:"enforcer"`
+	Hostname   string        `json:"hostname"`
+	User       string        `json:"user"`
 	ReceivedAt time.Time     `json:"received_at"`
 	Request    StatusRequest `json:"request"`
 }
 
 type usageKey struct {
-	enforcer string
-	subject  string
+	hostname string
+	user     string
 	day      string
+}
+
+type statusKey struct {
+	hostname string
+	user     string
 }
 
 type persistedState struct {
@@ -39,8 +45,8 @@ type persistedState struct {
 
 // UsageRecord is one persisted usage counter.
 type UsageRecord struct {
-	Enforcer    string `json:"enforcer"`
-	Subject     string `json:"subject"`
+	Hostname    string `json:"hostname"`
+	User        string `json:"user"`
 	Day         string `json:"day"`
 	UsedSeconds int64  `json:"used_seconds"`
 }
@@ -51,7 +57,7 @@ func NewStore(path string) (*Store, error) {
 	store := &Store{
 		path:   path,
 		usage:  make(map[usageKey]int64),
-		status: make(map[string]StatusRecord),
+		status: make(map[statusKey]StatusRecord),
 	}
 	if path == "" {
 		return store, nil
@@ -79,66 +85,76 @@ func (s *Store) load() error {
 		return err
 	}
 	for _, record := range state.Usage {
-		if record.UsedSeconds < 0 {
+		if record.Hostname == "" || record.User == "" || record.UsedSeconds < 0 {
 			continue
 		}
-		key := usageKey{enforcer: record.Enforcer, subject: record.Subject, day: record.Day}
+		key := usageKey{hostname: record.Hostname, user: record.User, day: record.Day}
 		if record.UsedSeconds > s.usage[key] {
 			s.usage[key] = record.UsedSeconds
 		}
 	}
 	for _, record := range state.Status {
-		if record.Enforcer != "" {
-			s.status[record.Enforcer] = record
+		if record.Hostname == "" || record.User == "" {
+			continue
 		}
+		s.status[statusKey{hostname: record.Hostname, user: record.User}] = record
 	}
 	return nil
 }
 
-// RecordUsage stores used seconds for one Enforcer, subject, and day. The
-// counter is monotonic; a lower value never replaces a higher one.
-func (s *Store) RecordUsage(enforcer, subject, day string, usedSeconds int64) {
+// RecordUsage stores used seconds for one hostname, user, and day. The counter
+// is monotonic; a lower value never replaces a higher one.
+func (s *Store) RecordUsage(hostname, user, day string, usedSeconds int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := usageKey{enforcer: enforcer, subject: subject, day: day}
+	key := usageKey{hostname: hostname, user: user, day: day}
 	if usedSeconds > s.usage[key] {
 		s.usage[key] = usedSeconds
 	}
 }
 
-// Usage returns the stored counter for one Enforcer, subject, and day.
-func (s *Store) Usage(enforcer, subject, day string) int64 {
+// Usage returns the stored counter for one hostname, user, and day.
+func (s *Store) Usage(hostname, user, day string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.usage[usageKey{enforcer: enforcer, subject: subject, day: day}]
+	return s.usage[usageKey{hostname: hostname, user: user, day: day}]
 }
 
-// AggregateUsage returns the sum of all Enforcers' counters for a subject/day.
-func (s *Store) AggregateUsage(subject, day string) int64 {
+// AggregateUsage returns the sum of all hostnames' counters for a user/day.
+func (s *Store) AggregateUsage(user, day string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var total int64
 	for key, used := range s.usage {
-		if key.subject == subject && key.day == day {
+		if key.user == user && key.day == day {
 			total += used
 		}
 	}
 	return total
 }
 
-// SetStatus stores the latest status for an Enforcer.
-func (s *Store) SetStatus(enforcer string, record StatusRecord) {
+// SetStatus stores the latest status for a hostname and user.
+func (s *Store) SetStatus(hostname, user string, record StatusRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.status[enforcer] = record
+	s.status[statusKey{hostname: hostname, user: user}] = record
 }
 
-// Status returns the latest status for an Enforcer.
-func (s *Store) Status(enforcer string) (StatusRecord, bool) {
+// StatusRecords returns all stored status records sorted by hostname and user.
+func (s *Store) StatusRecords() []StatusRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record, ok := s.status[enforcer]
-	return record, ok
+	records := make([]StatusRecord, 0, len(s.status))
+	for _, record := range s.status {
+		records = append(records, record)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Hostname != records[j].Hostname {
+			return records[i].Hostname < records[j].Hostname
+		}
+		return records[i].User < records[j].User
+	})
+	return records
 }
 
 // PruneUsage removes usage records older than the given policy day.
@@ -168,19 +184,19 @@ func (s *Store) Save() error {
 	}
 	for key, used := range s.usage {
 		state.Usage = append(state.Usage, UsageRecord{
-			Enforcer:    key.enforcer,
-			Subject:     key.subject,
+			Hostname:    key.hostname,
+			User:        key.user,
 			Day:         key.day,
 			UsedSeconds: used,
 		})
 	}
 	sort.Slice(state.Usage, func(i, j int) bool {
 		a, b := state.Usage[i], state.Usage[j]
-		if a.Enforcer != b.Enforcer {
-			return a.Enforcer < b.Enforcer
+		if a.Hostname != b.Hostname {
+			return a.Hostname < b.Hostname
 		}
-		if a.Subject != b.Subject {
-			return a.Subject < b.Subject
+		if a.User != b.User {
+			return a.User < b.User
 		}
 		return a.Day < b.Day
 	})
@@ -188,7 +204,10 @@ func (s *Store) Save() error {
 		state.Status = append(state.Status, record)
 	}
 	sort.Slice(state.Status, func(i, j int) bool {
-		return state.Status[i].Enforcer < state.Status[j].Enforcer
+		if state.Status[i].Hostname != state.Status[j].Hostname {
+			return state.Status[i].Hostname < state.Status[j].Hostname
+		}
+		return state.Status[i].User < state.Status[j].User
 	})
 
 	data, err := json.Marshal(state)

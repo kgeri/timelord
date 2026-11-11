@@ -2,6 +2,7 @@
 /.tmp
 /.sandbox.conf
 /.sandbox.env
+/secrets.env
 /dist
 /timelord
 /timetower

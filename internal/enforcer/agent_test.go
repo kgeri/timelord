@@ -19,37 +19,33 @@ func TestAgentRecordsUsageAndReportsStatus(t *testing.T) {
 	}}}
 	agent := newTestAgent(t, &now, client, sessions)
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
 	agent.enforce(context.Background())
 	now = now.Add(DefaultInterval)
 	agent.enforce(context.Background())
 
-	state := agent.subjects["dani"]
+	state := agent.states["dani"]
 	if state.local != 15 {
 		t.Fatalf("local usage = %d, want 15", state.local)
 	}
 
-	if err := agent.reportStatus(context.Background()); err != nil {
-		t.Fatalf("reportStatus() error = %v", err)
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
 	}
 	if len(client.statusRequests) != 1 {
 		t.Fatalf("status requests = %d, want 1", len(client.statusRequests))
 	}
 	request := client.statusRequests[0]
-	if request.EnforcerVersion != "test" {
-		t.Errorf("EnforcerVersion = %q, want test", request.EnforcerVersion)
+	if request.EnforcerVersion != "test" || request.Hostname != "test-host" {
+		t.Errorf("request = %+v, want test version and hostname", request)
 	}
-	if len(request.Subjects) != 1 {
-		t.Fatalf("len(Subjects) = %d, want 1", len(request.Subjects))
+	if !request.Active {
+		t.Errorf("Active = false, want true")
 	}
-	subject := request.Subjects[0]
-	if subject.Active != true {
-		t.Errorf("Active = %v, want true", subject.Active)
-	}
-	if len(subject.Usage) != 1 || subject.Usage[0].UsedSeconds != 15 {
-		t.Errorf("Usage = %+v, want current day 15 seconds", subject.Usage)
+	if len(request.Usage) != 1 || request.Usage[0].UsedSeconds != 15 {
+		t.Errorf("Usage = %+v, want current day 15 seconds", request.Usage)
 	}
 	if len(request.Processes) != 1 {
 		t.Fatalf("len(Processes) = %d, want 1", len(request.Processes))
@@ -67,31 +63,29 @@ func TestAgentAdoptsServerUsage(t *testing.T) {
 		scheduleRevision: 42,
 		statusRevision:   42,
 		statusResponse: &timetower.StatusResponse{
-			ServerTime: now,
-			ServerDay:  "2024-06-03",
-			Subjects: []timetower.StatusResponseSubject{{
-				Subject:              "dani",
-				CurrentDay:           "2024-06-03",
-				ReportedUsedSeconds:  100,
-				AggregateUsedSeconds: 500,
-				DailyLimitSeconds:    3600,
-				RemainingSeconds:     &remaining,
-				InsideWindow:         true,
-				Allowed:              true,
-				AcknowledgedDays:     []string{"2024-06-03"},
-			}},
+			ServerTime:           now,
+			ServerDay:            "2024-06-03",
+			User:                 "dani",
+			CurrentDay:           "2024-06-03",
+			ReportedUsedSeconds:  100,
+			AggregateUsedSeconds: 500,
+			DailyLimitSeconds:    3600,
+			RemainingSeconds:     &remaining,
+			InsideWindow:         true,
+			Allowed:              true,
+			AcknowledgedDays:     []string{"2024-06-03"},
 		},
 	}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
-	if err := agent.reportStatus(context.Background()); err != nil {
-		t.Fatalf("reportStatus() error = %v", err)
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
 	}
 
-	state := agent.subjects["dani"]
+	state := agent.states["dani"]
 	if state.local != 100 {
 		t.Errorf("local usage = %d, want 100", state.local)
 	}
@@ -111,31 +105,29 @@ func TestAgentAddsLocalUsageToOlderServerCounter(t *testing.T) {
 		scheduleRevision: 42,
 		statusRevision:   42,
 		statusResponse: &timetower.StatusResponse{
-			ServerTime: now,
-			ServerDay:  "2024-06-03",
-			Subjects: []timetower.StatusResponseSubject{{
-				Subject:              "dani",
-				CurrentDay:           "2024-06-03",
-				ReportedUsedSeconds:  500,
-				AggregateUsedSeconds: 1000,
-				DailyLimitSeconds:    3600,
-				RemainingSeconds:     &remaining,
-				InsideWindow:         true,
-				Allowed:              true,
-				AcknowledgedDays:     []string{"2024-06-03"},
-			}},
+			ServerTime:           now,
+			ServerDay:            "2024-06-03",
+			User:                 "dani",
+			CurrentDay:           "2024-06-03",
+			ReportedUsedSeconds:  500,
+			AggregateUsedSeconds: 1000,
+			DailyLimitSeconds:    3600,
+			RemainingSeconds:     &remaining,
+			InsideWindow:         true,
+			Allowed:              true,
+			AcknowledgedDays:     []string{"2024-06-03"},
 		},
 	}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
-	state := agent.subjects["dani"]
+	state := agent.states["dani"]
 	state.local = 15
 
-	if err := agent.reportStatus(context.Background()); err != nil {
-		t.Fatalf("reportStatus() error = %v", err)
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
 	}
 	if state.local != 515 {
 		t.Errorf("local usage = %d, want 515", state.local)
@@ -148,62 +140,17 @@ func TestAgentAddsLocalUsageToOlderServerCounter(t *testing.T) {
 	}
 }
 
-func TestAgentAdoptsServerDayOnStatus(t *testing.T) {
-	now := time.Date(2024, time.June, 3, 23, 59, 0, 0, time.UTC)
-	remaining := int64(3580)
-	client := &fakeClient{
-		schedule:         testSchedule(now),
-		scheduleRevision: 42,
-		statusRevision:   42,
-		statusResponse: &timetower.StatusResponse{
-			ServerTime: now.Add(2 * time.Minute),
-			ServerDay:  "2024-06-04",
-			Subjects: []timetower.StatusResponseSubject{{
-				Subject:              "dani",
-				CurrentDay:           "2024-06-04",
-				ReportedUsedSeconds:  20,
-				AggregateUsedSeconds: 20,
-				DailyLimitSeconds:    3600,
-				RemainingSeconds:     &remaining,
-				InsideWindow:         false,
-				Allowed:              false,
-				AcknowledgedDays:     []string{"2024-06-04"},
-			}},
-		},
-	}
-	agent := newTestAgent(t, &now, client, &fakeSessions{})
-
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
-	}
-	state := agent.subjects["dani"]
-	state.local = 100
-
-	if err := agent.reportStatus(context.Background()); err != nil {
-		t.Fatalf("reportStatus() error = %v", err)
-	}
-	if agent.day != "2024-06-04" {
-		t.Errorf("day = %q, want 2024-06-04", agent.day)
-	}
-	if state.pending["2024-06-03"] != 100 {
-		t.Errorf("pending usage = %d, want 100", state.pending["2024-06-03"])
-	}
-	if state.local != 20 {
-		t.Errorf("local usage = %d, want 20", state.local)
-	}
-}
-
-func TestAgentRefreshesScheduleWhenRevisionChanges(t *testing.T) {
+func TestAgentRefreshesSchedulesWhenRevisionChanges(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
 	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 43}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
 	client.scheduleRevision = 43
-	if err := agent.reportStatus(context.Background()); err != nil {
-		t.Fatalf("reportStatus() error = %v", err)
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
 	}
 	if client.fetchCount != 2 {
 		t.Errorf("fetch count = %d, want 2", client.fetchCount)
@@ -221,8 +168,8 @@ func TestAgentTerminatesDeniedSession(t *testing.T) {
 	}}}
 	agent := newTestAgent(t, &now, client, sessions)
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
 	agent.enforce(context.Background())
 
@@ -236,10 +183,10 @@ func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
 	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
-	state := agent.subjects["dani"]
+	state := agent.states["dani"]
 	state.local = 100
 	state.reported = 100
 	state.aggregate = 500
@@ -256,10 +203,52 @@ func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
 		t.Errorf("pending usage = %d, want 100", state.pending["2024-06-03"])
 	}
 
-	// Advance far enough that the old pending day would otherwise be pruned.
 	agent.rolloverDay("2024-06-11")
 	if _, ok := state.pending["2024-06-03"]; ok {
 		t.Error("old pending day was not pruned")
+	}
+}
+
+func TestAgentAdoptsServerDayOnStatus(t *testing.T) {
+	now := time.Date(2024, time.June, 3, 23, 59, 0, 0, time.UTC)
+	remaining := int64(3580)
+	client := &fakeClient{
+		schedule:         testSchedule(now),
+		scheduleRevision: 42,
+		statusRevision:   42,
+		statusResponse: &timetower.StatusResponse{
+			ServerTime:           now.Add(2 * time.Minute),
+			ServerDay:            "2024-06-04",
+			User:                 "dani",
+			CurrentDay:           "2024-06-04",
+			ReportedUsedSeconds:  20,
+			AggregateUsedSeconds: 20,
+			DailyLimitSeconds:    3600,
+			RemainingSeconds:     &remaining,
+			InsideWindow:         false,
+			Allowed:              false,
+			AcknowledgedDays:     []string{"2024-06-04"},
+		},
+	}
+	agent := newTestAgent(t, &now, client, &fakeSessions{})
+
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
+	}
+	state := agent.states["dani"]
+	state.local = 100
+
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
+	}
+	if agent.day != "2024-06-04" {
+		t.Errorf("day = %q, want 2024-06-04", agent.day)
+	}
+	if state.pending["2024-06-03"] != 100 {
+		t.Errorf("pending usage = %d, want 100", state.pending["2024-06-03"])
+	}
+	if state.local != 20 {
+		t.Errorf("local usage = %d, want 20", state.local)
 	}
 }
 
@@ -268,10 +257,10 @@ func TestAgentOfflineGraceDenies(t *testing.T) {
 	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
-	if err := agent.fetchSchedule(context.Background()); err != nil {
-		t.Fatalf("fetchSchedule() error = %v", err)
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
 	}
-	state := agent.subjects["dani"]
+	state := agent.states["dani"]
 	if !agent.allowed(state, now) {
 		t.Fatal("allowed before grace = false, want true")
 	}
@@ -298,6 +287,8 @@ func newTestAgent(t *testing.T, now *time.Time, client Client, sessions session.
 		Sessions:  sessions,
 		Processes: cache,
 		Version:   "test",
+		Hostname:  "test-host",
+		Users:     []string{"dani"},
 		Now:       func() time.Time { return *now },
 	})
 }
@@ -310,22 +301,19 @@ func testSchedule(now time.Time) *timetower.Schedule {
 		Timezone:              "UTC",
 		StatusIntervalSeconds: 60,
 		OfflineGraceSeconds:   3600,
-		Subjects: []timetower.ScheduleSubject{{
-			Subject: "dani",
-			Account: "dani",
-			Policy: &timetower.Policy{
-				Enabled:           true,
-				DailyLimitSeconds: 3600,
-				Windows: []policy.Window{{
-					Day: policy.Monday, Start: 8 * 60, End: 19 * 60,
-				}},
-			},
-			Usage: timetower.UsageState{
-				Day:              now.Format(dateLayout),
-				UsedSeconds:      0,
-				RemainingSeconds: &remaining,
-			},
-		}},
+		User:                  "dani",
+		Policy: &timetower.Policy{
+			Enabled:           true,
+			DailyLimitSeconds: 3600,
+			Windows: []policy.Window{{
+				Day: policy.Monday, Start: 8 * 60, End: 19 * 60,
+			}},
+		},
+		Usage: timetower.UsageState{
+			Day:              now.Format(dateLayout),
+			UsedSeconds:      0,
+			RemainingSeconds: &remaining,
+		},
 	}
 }
 
@@ -340,7 +328,7 @@ type fakeClient struct {
 	statusRequests   []timetower.StatusRequest
 }
 
-func (f *fakeClient) FetchSchedule(context.Context) (*timetower.Schedule, int64, error) {
+func (f *fakeClient) FetchSchedule(context.Context, string) (*timetower.Schedule, int64, error) {
 	f.fetchCount++
 	if f.scheduleErr != nil {
 		return nil, 0, f.scheduleErr
@@ -348,7 +336,7 @@ func (f *fakeClient) FetchSchedule(context.Context) (*timetower.Schedule, int64,
 	return f.schedule, f.scheduleRevision, nil
 }
 
-func (f *fakeClient) SendStatus(_ context.Context, request timetower.StatusRequest) (*timetower.StatusResponse, int64, error) {
+func (f *fakeClient) SendStatus(_ context.Context, _ string, request timetower.StatusRequest) (*timetower.StatusResponse, int64, error) {
 	f.statusRequests = append(f.statusRequests, request)
 	if f.statusErr != nil {
 		return nil, 0, f.statusErr

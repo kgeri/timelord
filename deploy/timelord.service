@@ -5,6 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
+EnvironmentFile=/etc/timelord.env
 # deploy-enforcer-linux.sh sets the Timetower URL.
 ExecStart=/usr/local/bin/timelord -listen 0.0.0.0:9220
 Restart=on-failure

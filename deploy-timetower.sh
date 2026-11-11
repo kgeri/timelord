@@ -9,7 +9,8 @@
 # hostPath-backed Deployment always sees the same configuration.
 #
 # The image tag is the current git commit. The script refuses to deploy from a
-# dirty tree, seeds /data/hosted/timetower/config.json from
+# dirty tree, reads TIMELORD_KEY from secrets.env, updates the Timetower
+# Kubernetes Secret, seeds /data/hosted/timetower/config.json from
 # deploy/timetower/config-default.json when it is missing, runs the Go checks,
 # builds and pushes the image, and applies the Kubernetes manifests.
 #
@@ -30,6 +31,8 @@ TIMETOWER_NODE="${TIMETOWER_NODE:-srvu}"
 TIMETOWER_DIR="${TIMETOWER_DIR:-/data/hosted/timetower}"
 DEFAULT_CONFIG="$CWD/deploy/timetower/config-default.json"
 CONFIG_PATH="$TIMETOWER_DIR/config.json"
+SECRETS_FILE="${TIMELORD_SECRETS:-$CWD/secrets.env}"
+SECRET_NAME="timetower-secrets"
 IMAGE_REPOSITORY="docker.ogreg.org/timetower"
 
 if [ -n "$(git -C "$CWD" status --porcelain)" ]; then
@@ -41,6 +44,33 @@ if [ ! -f "$DEFAULT_CONFIG" ]; then
 	echo "ERROR: default config file not found: $DEFAULT_CONFIG" >&2
 	exit 1
 fi
+
+if [ ! -f "$SECRETS_FILE" ]; then
+	echo "ERROR: secrets file not found: $SECRETS_FILE" >&2
+	exit 1
+fi
+secret_mode=$(stat -c '%a' "$SECRETS_FILE" 2>/dev/null || true)
+if [ "$secret_mode" != "600" ] && [ "$secret_mode" != "400" ]; then
+	echo "ERROR: $SECRETS_FILE must be mode 0600 or 0400 (currently ${secret_mode:-unknown})" >&2
+	exit 1
+fi
+
+set +x
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+if [ -z "${TIMELORD_KEY:-}" ]; then
+	echo "ERROR: TIMELORD_KEY is empty or missing in $SECRETS_FILE" >&2
+	exit 1
+fi
+secret_file=$(mktemp)
+trap 'rm -f "$secret_file"' EXIT
+chmod 600 "$secret_file"
+printf 'TIMELORD_KEY=%s\n' "$TIMELORD_KEY" > "$secret_file"
+kubectl create secret generic "$SECRET_NAME" \
+	--namespace "$NAMESPACE" \
+	--from-env-file="$secret_file" \
+	--dry-run=client -o yaml | kubectl apply -f -
+set -x
 
 # Seed the live config once. An existing host config is preserved unless
 # TIMETOWER_FORCE_CONFIG=1 is set.

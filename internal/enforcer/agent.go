@@ -24,8 +24,8 @@ const (
 
 // Client is the subset of the Timetower client used by the agent.
 type Client interface {
-	FetchSchedule(context.Context) (*timetower.Schedule, int64, error)
-	SendStatus(context.Context, timetower.StatusRequest) (*timetower.StatusResponse, int64, error)
+	FetchSchedule(context.Context, string) (*timetower.Schedule, int64, error)
+	SendStatus(context.Context, string, timetower.StatusRequest) (*timetower.StatusResponse, int64, error)
 }
 
 // Config configures an Agent.
@@ -34,21 +34,25 @@ type Config struct {
 	Sessions  session.SessionSource
 	Processes *process.Cache
 	Version   string
+	Hostname  string
+	Users     []string
 	Interval  time.Duration
 	Now       func() time.Time
 }
 
-// Agent fetches its schedule from Timetower, enforces it locally, and reports
+// Agent fetches schedules from Timetower, enforces them locally, and reports
 // status back to Timetower. It keeps no schedule or usage files.
 type Agent struct {
 	client    Client
 	sessions  session.SessionSource
 	processes *process.Cache
 	version   string
+	hostname  string
+	users     []string
+	managed   map[string]bool
 	interval  time.Duration
 	now       func() time.Time
 
-	schedule       *timetower.Schedule
 	loc            *time.Location
 	revision       int64
 	statusInterval time.Duration
@@ -57,9 +61,7 @@ type Agent struct {
 	lastTick       time.Time
 	day            string
 
-	subjects  map[string]*subjectState
-	order     []string
-	byAccount map[string]string
+	states map[string]*userState
 
 	lastSessions []session.Session
 	lastAudited  map[string]session.Session
@@ -68,8 +70,7 @@ type Agent struct {
 	reportError  string
 }
 
-type subjectState struct {
-	account   string
+type userState struct {
 	policy    *timetower.Policy
 	local     int64
 	reported  int64
@@ -77,7 +78,8 @@ type subjectState struct {
 	pending   map[string]int64
 }
 
-// New returns an Agent. The caller must provide a client and session source.
+// New returns an Agent. The caller must provide a client, session source, and
+// at least one user.
 func New(config Config) *Agent {
 	interval := config.Interval
 	if interval <= 0 {
@@ -87,23 +89,38 @@ func New(config Config) *Agent {
 	if now == nil {
 		now = time.Now
 	}
+
+	users := make([]string, 0, len(config.Users))
+	managed := make(map[string]bool, len(config.Users))
+	states := make(map[string]*userState, len(config.Users))
+	for _, user := range config.Users {
+		if user == "" || managed[user] {
+			continue
+		}
+		managed[user] = true
+		users = append(users, user)
+		states[user] = &userState{pending: make(map[string]int64)}
+	}
+
 	return &Agent{
 		client:         config.Client,
 		sessions:       config.Sessions,
 		processes:      config.Processes,
 		version:        config.Version,
+		hostname:       config.Hostname,
+		users:          users,
+		managed:        managed,
 		interval:       interval,
 		now:            now,
 		loc:            time.UTC,
 		statusInterval: DefaultStatusInterval,
-		subjects:       make(map[string]*subjectState),
-		byAccount:      make(map[string]string),
+		states:         states,
 		lastAudited:    make(map[string]session.Session),
 	}
 }
 
-// Run fetches the initial schedule, enforces it, and reports status until ctx
-// is cancelled. A missing initial schedule is a startup failure.
+// Run fetches the initial schedules, enforces them, and reports status until
+// ctx is cancelled. A missing initial schedule is a startup failure.
 func (a *Agent) Run(ctx context.Context) error {
 	if a.client == nil {
 		return fmt.Errorf("timetower client is nil")
@@ -111,12 +128,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.sessions == nil {
 		return fmt.Errorf("session source is nil")
 	}
-	if err := a.fetchSchedule(ctx); err != nil {
+	if a.hostname == "" {
+		return fmt.Errorf("hostname is empty")
+	}
+	if len(a.users) == 0 {
+		return fmt.Errorf("no users configured")
+	}
+	if err := a.fetchSchedules(ctx); err != nil {
 		return fmt.Errorf("fetch schedule: %w", err)
 	}
 
 	a.enforce(ctx)
-	if err := a.reportStatus(ctx); err != nil {
+	if err := a.reportStatuses(ctx); err != nil {
 		a.logReportError(err)
 	} else {
 		a.clearReportError()
@@ -131,7 +154,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			finalCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := a.reportStatus(finalCtx); err != nil {
+			if err := a.reportStatuses(finalCtx); err != nil {
 				a.logReportError(err)
 			}
 			cancel()
@@ -140,7 +163,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.enforce(ctx)
 		case <-statusTicker.C:
 			before := a.statusInterval
-			if err := a.reportStatus(ctx); err != nil {
+			if err := a.reportStatuses(ctx); err != nil {
 				a.logReportError(err)
 			} else {
 				a.clearReportError()
@@ -153,63 +176,65 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-func (a *Agent) fetchSchedule(ctx context.Context) error {
-	schedule, revision, err := a.client.FetchSchedule(ctx)
-	if err != nil {
-		return err
+func (a *Agent) fetchSchedules(ctx context.Context) error {
+	if len(a.users) == 0 {
+		return fmt.Errorf("no users configured")
 	}
-	loc, err := time.LoadLocation(schedule.Timezone)
-	if err != nil {
-		return fmt.Errorf("load timezone %q: %w", schedule.Timezone, err)
-	}
-
 	now := a.now().UTC()
+
+	type fetchedSchedule struct {
+		user     string
+		schedule *timetower.Schedule
+		revision int64
+	}
+	fetched := make([]fetchedSchedule, 0, len(a.users))
+	for _, user := range a.users {
+		schedule, revision, err := a.client.FetchSchedule(ctx, user)
+		if err != nil {
+			return fmt.Errorf("user %s: %w", user, err)
+		}
+		fetched = append(fetched, fetchedSchedule{user: user, schedule: schedule, revision: revision})
+	}
+
+	first := fetched[0].schedule
+	loc, err := time.LoadLocation(first.Timezone)
+	if err != nil {
+		return fmt.Errorf("load timezone %q: %w", first.Timezone, err)
+	}
 	day := now.In(loc).Format(dateLayout)
-	if !schedule.ServerTime.IsZero() {
-		day = schedule.ServerTime.In(loc).Format(dateLayout)
+	if !first.ServerTime.IsZero() {
+		day = first.ServerTime.In(loc).Format(dateLayout)
 	}
-	a.applySchedule(schedule, revision, loc, day, now)
-	log.Printf("schedule: revision %d, %d subject(s)", revision, len(schedule.Subjects))
-	return nil
-}
+	statusInterval := time.Duration(first.StatusIntervalSeconds) * time.Second
+	if statusInterval <= 0 {
+		statusInterval = DefaultStatusInterval
+	}
+	offlineGrace := time.Duration(first.OfflineGraceSeconds) * time.Second
+	if offlineGrace < 0 {
+		offlineGrace = 0
+	}
 
-func (a *Agent) applySchedule(schedule *timetower.Schedule, revision int64, loc *time.Location, day string, now time.Time) {
-	a.schedule = schedule
 	a.loc = loc
-	a.revision = revision
-	a.statusInterval = time.Duration(schedule.StatusIntervalSeconds) * time.Second
-	if a.statusInterval <= 0 {
-		a.statusInterval = DefaultStatusInterval
-	}
-	a.offlineGrace = time.Duration(schedule.OfflineGraceSeconds) * time.Second
-	if a.offlineGrace < 0 {
-		a.offlineGrace = 0
-	}
-
+	a.statusInterval = statusInterval
+	a.offlineGrace = offlineGrace
+	a.revision = fetched[0].revision
 	a.rolloverDay(day)
-
-	subjects := make(map[string]*subjectState, len(schedule.Subjects))
-	order := make([]string, 0, len(schedule.Subjects))
-	byAccount := make(map[string]string, len(schedule.Subjects))
-	for _, item := range schedule.Subjects {
-		state := a.subjects[item.Subject]
+	for _, item := range fetched {
+		state := a.states[item.user]
 		if state == nil {
-			state = &subjectState{pending: make(map[string]int64)}
+			state = &userState{pending: make(map[string]int64)}
+			a.states[item.user] = state
 		}
 		if state.pending == nil {
 			state.pending = make(map[string]int64)
 		}
-		state.account = item.Account
-		state.policy = item.Policy
-		state.aggregate = item.Usage.UsedSeconds
-		subjects[item.Subject] = state
-		order = append(order, item.Subject)
-		byAccount[item.Account] = item.Subject
+		state.policy = item.schedule.Policy
+		state.aggregate = item.schedule.Usage.UsedSeconds
 	}
-	a.subjects = subjects
-	a.order = order
-	a.byAccount = byAccount
 	a.lastContact = now
+
+	log.Printf("schedule: revision %d, %d user(s)", a.revision, len(a.users))
+	return nil
 }
 
 func (a *Agent) enforce(ctx context.Context) {
@@ -227,22 +252,18 @@ func (a *Agent) enforce(ctx context.Context) {
 	a.lastSessions = sessions
 
 	elapsed := a.elapsed(now)
-	for _, subject := range a.order {
-		state := a.subjects[subject]
-		if hasActiveSession(sessions, state.account) {
-			state.local += int64(elapsed / time.Second)
+	for _, user := range a.users {
+		if hasActiveSession(sessions, user) {
+			a.states[user].local += int64(elapsed / time.Second)
 		}
 	}
 
 	for _, sess := range sessions {
-		if sess.ID == "" || !session.IsLocalSession(sess) {
+		if sess.ID == "" || !session.IsLocalSession(sess) || !a.managed[sess.User] {
 			continue
 		}
-		subject, ok := a.byAccount[sess.User]
-		if !ok {
-			continue
-		}
-		if a.allowed(a.subjects[subject], now) {
+		state := a.states[sess.User]
+		if a.allowed(state, now) {
 			continue
 		}
 		log.Printf("AUDIT: terminate user=%q session=%s reason=schedule_denied", sess.User, sess.ID)
@@ -252,101 +273,101 @@ func (a *Agent) enforce(ctx context.Context) {
 	}
 }
 
-func (a *Agent) reportStatus(ctx context.Context) error {
+func (a *Agent) reportStatuses(ctx context.Context) error {
 	now := a.now().UTC()
 	a.rolloverDay(now.In(a.loc).Format(dateLayout))
+	processes := a.processStats()
 
-	request := timetower.StatusRequest{
-		ObservedAt:      now,
-		EnforcerVersion: a.version,
-		Health:          a.health(),
-		Subjects:        a.statusSubjects(),
-		Processes:       a.processStats(),
-	}
-	sent := make(map[string]int64, len(a.order))
-	for _, subject := range a.order {
-		sent[subject] = a.subjects[subject].local
-	}
+	var firstErr error
+	refresh := false
 
-	response, revision, err := a.client.SendStatus(ctx, request)
-	if err != nil {
-		return err
-	}
+	for _, user := range a.users {
+		state := a.states[user]
+		request := a.statusRequest(user, state, now, processes)
+		sentLocal := state.local
 
-	a.lastContact = now
-	a.applyStatus(response, sent)
-	if revision != a.revision {
-		if err := a.fetchSchedule(ctx); err != nil {
-			return fmt.Errorf("refresh schedule: %w", err)
+		response, revision, err := a.client.SendStatus(ctx, user, request)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("user %s: %w", user, err)
+			}
+			continue
+		}
+
+		a.lastContact = now
+		a.applyStatus(user, state, response, sentLocal)
+		if revision != a.revision {
+			refresh = true
 		}
 	}
-	return nil
+
+	if refresh {
+		if err := a.fetchSchedules(ctx); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("refresh schedules: %w", err)
+			}
+		}
+	}
+	return firstErr
 }
 
-func (a *Agent) applyStatus(response *timetower.StatusResponse, sent map[string]int64) {
+func (a *Agent) statusRequest(user string, state *userState, now time.Time, processes []timetower.ProcessStat) timetower.StatusRequest {
+	sessions := sessionsForUser(a.lastSessions, user)
+	active, locked := sessionState(sessions)
+
+	usage := make([]timetower.UsageEntry, 0, len(state.pending)+1)
+	usage = append(usage, timetower.UsageEntry{Day: a.day, UsedSeconds: state.local})
+	for day, used := range state.pending {
+		if day == a.day {
+			continue
+		}
+		usage = append(usage, timetower.UsageEntry{Day: day, UsedSeconds: used})
+	}
+	sort.Slice(usage, func(i, j int) bool { return usage[i].Day < usage[j].Day })
+	if len(usage) > 7 {
+		usage = usage[len(usage)-7:]
+	}
+
+	return timetower.StatusRequest{
+		ObservedAt:      now,
+		EnforcerVersion: a.version,
+		Hostname:        a.hostname,
+		Health:          a.health(),
+		Active:          active,
+		Locked:          locked,
+		SessionCount:    len(sessions),
+		Usage:           usage,
+		Processes:       processes,
+	}
+}
+
+func (a *Agent) applyStatus(user string, state *userState, response *timetower.StatusResponse, sentLocal int64) {
 	dayChanged := response.ServerDay != "" && response.ServerDay != a.day
 	if dayChanged {
 		a.rolloverDay(response.ServerDay)
-	}
-	for _, item := range response.Subjects {
-		state := a.subjects[item.Subject]
+		// The sent counter belongs to the previous policy day and was moved
+		// into the pending set by the rollover.
+		sentLocal = 0
+		state = a.states[user]
 		if state == nil {
-			continue
-		}
-		sentLocal := sent[item.Subject]
-		if dayChanged {
-			// The sent counter belongs to the previous policy day and was
-			// moved into the pending set by the rollover.
-			sentLocal = 0
-		}
-		if item.ReportedUsedSeconds > sentLocal {
-			// The server already had a higher counter, for example after an
-			// Enforcer restart. Keep the local usage counted since startup.
-			state.local = item.ReportedUsedSeconds + sentLocal
-		} else {
-			state.local = sentLocal
-		}
-		state.reported = item.ReportedUsedSeconds
-		state.aggregate = item.AggregateUsedSeconds
-		for _, day := range item.AcknowledgedDays {
-			if day != a.day {
-				delete(state.pending, day)
-			}
+			return
 		}
 	}
-}
 
-func (a *Agent) statusSubjects() []timetower.StatusSubject {
-	subjects := make([]timetower.StatusSubject, 0, len(a.order))
-	for _, subject := range a.order {
-		state := a.subjects[subject]
-		sessions := sessionsForAccount(a.lastSessions, state.account)
-		active, locked := sessionState(sessions)
-
-		usage := make([]timetower.UsageEntry, 0, len(state.pending)+1)
-		usage = append(usage, timetower.UsageEntry{Day: a.day, UsedSeconds: state.local})
-		for day, used := range state.pending {
-			if day == a.day {
-				continue
-			}
-			usage = append(usage, timetower.UsageEntry{Day: day, UsedSeconds: used})
-		}
-		sort.Slice(usage, func(i, j int) bool { return usage[i].Day < usage[j].Day })
-		if len(usage) > 7 {
-			usage = usage[len(usage)-7:]
-		}
-
-		subjects = append(subjects, timetower.StatusSubject{
-			Subject:        subject,
-			Account:        state.account,
-			AccountPresent: true,
-			SessionCount:   len(sessions),
-			Active:         active,
-			Locked:         locked,
-			Usage:          usage,
-		})
+	if response.ReportedUsedSeconds > sentLocal {
+		// The server already had a higher counter, for example after an
+		// Enforcer restart. Keep the local usage counted since startup.
+		state.local = response.ReportedUsedSeconds + sentLocal
+	} else {
+		state.local = sentLocal
 	}
-	return subjects
+	state.reported = response.ReportedUsedSeconds
+	state.aggregate = response.AggregateUsedSeconds
+	for _, day := range response.AcknowledgedDays {
+		if day != a.day {
+			delete(state.pending, day)
+		}
+	}
 }
 
 func (a *Agent) processStats() []timetower.ProcessStat {
@@ -384,7 +405,7 @@ func (a *Agent) rolloverDay(day string) {
 		return
 	}
 
-	for _, state := range a.subjects {
+	for _, state := range a.states {
 		if state.local > state.pending[a.day] {
 			state.pending[a.day] = state.local
 		}
@@ -397,7 +418,7 @@ func (a *Agent) rolloverDay(day string) {
 	a.day = day
 }
 
-func (a *Agent) allowed(state *subjectState, now time.Time) bool {
+func (a *Agent) allowed(state *userState, now time.Time) bool {
 	if state == nil {
 		return false
 	}
@@ -414,7 +435,7 @@ func (a *Agent) allowed(state *subjectState, now time.Time) bool {
 	return limit == 0 || a.estimated(state) < limit
 }
 
-func (a *Agent) estimated(state *subjectState) int64 {
+func (a *Agent) estimated(state *userState) int64 {
 	delta := state.local - state.reported
 	if delta < 0 {
 		delta = 0
@@ -487,14 +508,11 @@ func (a *Agent) clearReportError() {
 
 func (a *Agent) auditSessions(sessions []session.Session) {
 	current := make(map[string]session.Session)
-	for _, session := range sessions {
-		if session.ID == "" {
+	for _, sess := range sessions {
+		if sess.ID == "" || !a.managed[sess.User] {
 			continue
 		}
-		if _, ok := a.byAccount[session.User]; !ok {
-			continue
-		}
-		current[session.ID] = session
+		current[sess.ID] = sess
 	}
 
 	if !a.auditReady {
@@ -503,23 +521,23 @@ func (a *Agent) auditSessions(sessions []session.Session) {
 		return
 	}
 
-	for id, session := range current {
+	for id, sess := range current {
 		previous, ok := a.lastAudited[id]
 		if !ok {
-			logAudit("login", session)
+			logAudit("login", sess)
 			continue
 		}
-		if previous.Locked != session.Locked {
-			if session.Locked {
-				logAudit("lock", session)
+		if previous.Locked != sess.Locked {
+			if sess.Locked {
+				logAudit("lock", sess)
 			} else {
-				logAudit("unlock", session)
+				logAudit("unlock", sess)
 			}
 		}
 	}
-	for id, session := range a.lastAudited {
+	for id, sess := range a.lastAudited {
 		if _, ok := current[id]; !ok {
-			logAudit("logout", session)
+			logAudit("logout", sess)
 		}
 	}
 	a.lastAudited = current
@@ -530,19 +548,19 @@ func logAudit(event string, s session.Session) {
 		event, s.User, s.ID, s.Seat, s.Remote, s.Class)
 }
 
-func hasActiveSession(sessions []session.Session, account string) bool {
+func hasActiveSession(sessions []session.Session, user string) bool {
 	for _, sess := range sessions {
-		if sess.User == account && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
+		if sess.User == user && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
 			return true
 		}
 	}
 	return false
 }
 
-func sessionsForAccount(sessions []session.Session, account string) []session.Session {
+func sessionsForUser(sessions []session.Session, user string) []session.Session {
 	var out []session.Session
 	for _, sess := range sessions {
-		if sess.User == account {
+		if sess.User == user {
 			out = append(out, sess)
 		}
 	}

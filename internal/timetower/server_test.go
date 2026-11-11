@@ -10,11 +10,13 @@ import (
 	"time"
 )
 
+const testKey = "test-key"
+
 func TestScheduleHandler(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule", nil)
-	req.RemoteAddr = "192.0.2.10:1234"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule/dani", nil)
+	authorize(req)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -35,90 +37,108 @@ func TestScheduleHandler(t *testing.T) {
 	if response.Timezone != "UTC" {
 		t.Errorf("Timezone = %q, want UTC", response.Timezone)
 	}
-	if len(response.Subjects) != 1 {
-		t.Fatalf("len(Subjects) = %d, want 1", len(response.Subjects))
+	if response.User != "dani" {
+		t.Errorf("User = %q, want dani", response.User)
 	}
-	subject := response.Subjects[0]
-	if subject.Subject != "dani" || subject.Account != "dani" {
-		t.Errorf("subject = %+v, want dani/dani", subject)
+	if response.Usage.Day != "2024-06-03" {
+		t.Errorf("Usage.Day = %q, want 2024-06-03", response.Usage.Day)
 	}
-	if subject.Usage.Day != "2024-06-03" {
-		t.Errorf("Usage.Day = %q, want 2024-06-03", subject.Usage.Day)
+	if response.Usage.UsedSeconds != 0 {
+		t.Errorf("Usage.UsedSeconds = %d, want 0", response.Usage.UsedSeconds)
 	}
-	if subject.Usage.UsedSeconds != 0 {
-		t.Errorf("Usage.UsedSeconds = %d, want 0", subject.Usage.UsedSeconds)
-	}
-	if subject.Usage.RemainingSeconds == nil || *subject.Usage.RemainingSeconds != 3600 {
-		t.Errorf("Usage.RemainingSeconds = %v, want 3600", subject.Usage.RemainingSeconds)
+	if response.Usage.RemainingSeconds == nil || *response.Usage.RemainingSeconds != 3600 {
+		t.Errorf("Usage.RemainingSeconds = %v, want 3600", response.Usage.RemainingSeconds)
 	}
 }
 
-func TestScheduleUsesForwardedClientIP(t *testing.T) {
+func TestScheduleRequiresAuth(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-	req.Header.Set("X-Forwarded-For", "203.0.113.9, 192.0.2.10")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule/dani", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/schedule/dani", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong key status = %d, want 401", rec.Code)
+	}
+}
+
+func TestScheduleUnknownUser(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule/other", nil)
+	authorize(req)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestScheduleMethodNotAllowed(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/schedule/dani", nil)
+	authorize(req)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != http.MethodGet {
+		t.Errorf("Allow = %q, want GET", got)
 	}
 }
 
 func TestEnforcersListing(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
+	// The listing is public and empty before any status report.
+	rec := getListing(server)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-
 	var listing EnforcerList
 	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
 		t.Fatalf("decode listing: %v", err)
 	}
-	if len(listing.Enforcers) != 1 {
-		t.Fatalf("len(Enforcers) = %d, want 1", len(listing.Enforcers))
-	}
-	enforcer := listing.Enforcers[0]
-	if enforcer.Name != "test-pc" || enforcer.Online {
-		t.Errorf("enforcer = %+v, want test-pc offline", enforcer)
-	}
-	if enforcer.LastSeen != nil {
-		t.Errorf("LastSeen = %v, want nil", enforcer.LastSeen)
-	}
-	if len(enforcer.Subjects) != 1 {
-		t.Fatalf("len(Subjects) = %d, want 1", len(enforcer.Subjects))
-	}
-	if remaining := enforcer.Subjects[0].RemainingSeconds; remaining == nil || *remaining != 3600 {
-		t.Errorf("RemainingSeconds = %v, want 3600", remaining)
+	if len(listing.Enforcers) != 0 {
+		t.Fatalf("len(Enforcers) = %d, want 0", len(listing.Enforcers))
 	}
 
 	if rec := putStatus(t, server, statusBody(1200)); rec.Code != http.StatusOK {
 		t.Fatalf("status update = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
+	rec = getListing(server)
 	listing = EnforcerList{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
 		t.Fatalf("decode listing after status: %v", err)
 	}
-	enforcer = listing.Enforcers[0]
-	if !enforcer.Online {
-		t.Error("Online = false, want true")
+	if len(listing.Enforcers) != 1 {
+		t.Fatalf("len(Enforcers) = %d, want 1", len(listing.Enforcers))
+	}
+	enforcer := listing.Enforcers[0]
+	if enforcer.Hostname != "test-host" || !enforcer.Online {
+		t.Errorf("enforcer = %+v, want test-host online", enforcer)
 	}
 	if enforcer.LastSeen == nil {
 		t.Error("LastSeen = nil, want timestamp")
 	}
-	subject := enforcer.Subjects[0]
-	if subject.UsedSeconds != 1200 || subject.RemainingSeconds == nil || *subject.RemainingSeconds != 2400 {
-		t.Errorf("subject usage = %+v, want used 1200 remaining 2400", subject)
+	if len(enforcer.Users) != 1 {
+		t.Fatalf("len(Users) = %d, want 1", len(enforcer.Users))
+	}
+	user := enforcer.Users[0]
+	if user.UsedSeconds != 1200 || user.RemainingSeconds == nil || *user.RemainingSeconds != 2400 {
+		t.Errorf("user usage = %+v, want used 1200 remaining 2400", user)
 	}
 }
 
@@ -130,9 +150,7 @@ func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
 
 	server.checkTimeouts(testNow().Add(4 * time.Minute))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
+	rec := getListing(server)
 	var listing EnforcerList
 	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
 		t.Fatalf("decode listing: %v", err)
@@ -142,49 +160,6 @@ func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
 	}
 	if listing.Enforcers[0].LastSeen == nil {
 		t.Error("LastSeen = nil, want the previous heartbeat time")
-	}
-}
-
-func TestScheduleMatchesClientIPAnywhereInForwardedChain(t *testing.T) {
-	server, _ := newTestServer(t, testNow())
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-	req.Header.Set("X-Forwarded-For", "192.0.2.10, 10.0.0.1")
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestScheduleUnknownEnforcer(t *testing.T) {
-	server, _ := newTestServer(t, testNow())
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule", nil)
-	req.RemoteAddr = "192.0.2.99:1234"
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
-}
-
-func TestScheduleMethodNotAllowed(t *testing.T) {
-	server, _ := newTestServer(t, testNow())
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/schedule", nil)
-	req.RemoteAddr = "192.0.2.10:1234"
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", rec.Code)
-	}
-	if got := rec.Header().Get("Allow"); got != http.MethodGet {
-		t.Errorf("Allow = %q, want GET", got)
 	}
 }
 
@@ -203,21 +178,20 @@ func TestStatusHandlerRecordsMonotonicUsage(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode status: %v", err)
 	}
-	if len(response.Subjects) != 1 {
-		t.Fatalf("len(Subjects) = %d, want 1", len(response.Subjects))
+	if response.User != "dani" {
+		t.Errorf("User = %q, want dani", response.User)
 	}
-	subject := response.Subjects[0]
-	if subject.ReportedUsedSeconds != 1200 || subject.AggregateUsedSeconds != 1200 {
-		t.Errorf("usage = reported %d aggregate %d, want 1200/1200", subject.ReportedUsedSeconds, subject.AggregateUsedSeconds)
+	if response.ReportedUsedSeconds != 1200 || response.AggregateUsedSeconds != 1200 {
+		t.Errorf("usage = reported %d aggregate %d, want 1200/1200", response.ReportedUsedSeconds, response.AggregateUsedSeconds)
 	}
-	if subject.RemainingSeconds == nil || *subject.RemainingSeconds != 2400 {
-		t.Errorf("RemainingSeconds = %v, want 2400", subject.RemainingSeconds)
+	if response.RemainingSeconds == nil || *response.RemainingSeconds != 2400 {
+		t.Errorf("RemainingSeconds = %v, want 2400", response.RemainingSeconds)
 	}
-	if !subject.Allowed {
+	if !response.Allowed {
 		t.Error("Allowed = false, want true")
 	}
-	if subject.DenyReason != nil {
-		t.Errorf("DenyReason = %v, want nil", *subject.DenyReason)
+	if response.DenyReason != nil {
+		t.Errorf("DenyReason = %v, want nil", *response.DenyReason)
 	}
 
 	// A lower counter must not replace the stored value.
@@ -229,17 +203,16 @@ func TestStatusHandlerRecordsMonotonicUsage(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode second status: %v", err)
 	}
-	if got := response.Subjects[0].ReportedUsedSeconds; got != 1200 {
+	if got := response.ReportedUsedSeconds; got != 1200 {
 		t.Errorf("ReportedUsedSeconds after lower report = %d, want 1200", got)
 	}
-	if got := store.Usage("test-pc", "dani", "2024-06-03"); got != 1200 {
+	if got := store.Usage("test-host", "dani", "2024-06-03"); got != 1200 {
 		t.Errorf("stored Usage = %d, want 1200", got)
 	}
 }
 
 func TestStatusHandlerDailyLimitReached(t *testing.T) {
-	now := testNow()
-	server, _ := newTestServer(t, now)
+	server, _ := newTestServer(t, testNow())
 
 	rec := putStatus(t, server, statusBody(3600))
 	if rec.Code != http.StatusOK {
@@ -250,15 +223,14 @@ func TestStatusHandlerDailyLimitReached(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode status: %v", err)
 	}
-	subject := response.Subjects[0]
-	if subject.Allowed {
+	if response.Allowed {
 		t.Error("Allowed = true, want false")
 	}
-	if subject.DenyReason == nil || *subject.DenyReason != "daily_limit_reached" {
-		t.Errorf("DenyReason = %v, want daily_limit_reached", subject.DenyReason)
+	if response.DenyReason == nil || *response.DenyReason != "daily_limit_reached" {
+		t.Errorf("DenyReason = %v, want daily_limit_reached", response.DenyReason)
 	}
-	if subject.RemainingSeconds == nil || *subject.RemainingSeconds != 0 {
-		t.Errorf("RemainingSeconds = %v, want 0", subject.RemainingSeconds)
+	if response.RemainingSeconds == nil || *response.RemainingSeconds != 0 {
+		t.Errorf("RemainingSeconds = %v, want 0", response.RemainingSeconds)
 	}
 }
 
@@ -271,11 +243,33 @@ func TestStatusHandlerDayMismatch(t *testing.T) {
 	}
 }
 
+func TestStatusHandlerRequiresHostname(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	body := strings.Replace(statusBody(100), `"hostname": "test-host",`, "", 1)
+	rec := putStatus(t, server, body)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStatusHandlerUnknownUser(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/status/other", strings.NewReader(statusBody(100)))
+	authorize(req)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
 func TestStatusHandlerRejectsInvalidJSON(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/status", strings.NewReader("{"))
-	req.RemoteAddr = "192.0.2.10:1234"
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/status/dani", strings.NewReader("{"))
+	authorize(req)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -294,37 +288,6 @@ func TestStatusHandlerRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestStatusHandlerIgnoresUnassignedSubject(t *testing.T) {
-	server, store := newTestServer(t, testNow())
-
-	body := `{
-		"observed_at": "2024-06-03T10:00:00Z",
-		"enforcer_version": "0.2.0",
-		"health": {"status": "ok", "last_error": null},
-		"subjects": [
-			{"subject": "other", "account": "other", "account_present": true,
-			 "session_count": 1, "active": true, "locked": false,
-			 "usage": [{"day": "2024-06-03", "used_seconds": 500}]}
-		],
-		"processes": []
-	}`
-	rec := putStatus(t, server, body)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-
-	var response StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode status: %v", err)
-	}
-	if len(response.Subjects) != 1 || response.Subjects[0].Subject != "dani" {
-		t.Fatalf("Subjects = %+v, want only dani", response.Subjects)
-	}
-	if got := store.AggregateUsage("other", "2024-06-03"); got != 0 {
-		t.Errorf("unassigned usage = %d, want 0", got)
-	}
-}
-
 func TestStatusHandlerOutsideWindow(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 20, 0, 0, 0, time.UTC)
 	configJSON := strings.Replace(testConfigJSON,
@@ -339,40 +302,21 @@ func TestStatusHandlerOutsideWindow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode status: %v", err)
 	}
-	subject := response.Subjects[0]
-	if subject.Allowed {
+	if response.Allowed {
 		t.Error("Allowed = true, want false")
 	}
-	if subject.DenyReason == nil || *subject.DenyReason != "outside_window" {
-		t.Errorf("DenyReason = %v, want outside_window", subject.DenyReason)
+	if response.DenyReason == nil || *response.DenyReason != "outside_window" {
+		t.Errorf("DenyReason = %v, want outside_window", response.DenyReason)
 	}
 }
 
-func TestAggregateUsageAcrossEnforcers(t *testing.T) {
-	configJSON := `{
-		"timezone": "UTC",
-		"status_interval_seconds": 60,
-		"offline_grace_seconds": 3600,
-		"subjects": [
-			{"id": "dani", "policy": {"enabled": true, "daily_limit_seconds": 3600,
-			 "windows": [{"day": "mon", "start": "00:00", "end": "23:59"}]}}
-		],
-		"enforcers": [
-			{"ip": "192.0.2.10", "name": "pc-one", "accounts": [{"subject": "dani", "account": "dani"}]},
-			{"ip": "192.0.2.11", "name": "pc-two", "accounts": [{"subject": "dani", "account": "dani"}]}
-		]
-	}`
-	server, _ := newTestServerWithConfig(t, configJSON, testNow())
+func TestAggregateUsageAcrossHostnames(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
 
-	rec := putStatus(t, server, statusBody(1000))
-	if rec.Code != http.StatusOK {
+	if rec := putStatusAs(t, server, "pc-one", statusBody(1000)); rec.Code != http.StatusOK {
 		t.Fatalf("first status = %d, want 200", rec.Code)
 	}
-
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/status", strings.NewReader(statusBody(500)))
-	req.RemoteAddr = "192.0.2.11:1234"
-	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
+	rec := putStatusAs(t, server, "pc-two", statusBody(500))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -381,12 +325,11 @@ func TestAggregateUsageAcrossEnforcers(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode second status: %v", err)
 	}
-	subject := response.Subjects[0]
-	if subject.ReportedUsedSeconds != 500 {
-		t.Errorf("ReportedUsedSeconds = %d, want 500", subject.ReportedUsedSeconds)
+	if response.ReportedUsedSeconds != 500 {
+		t.Errorf("ReportedUsedSeconds = %d, want 500", response.ReportedUsedSeconds)
 	}
-	if subject.AggregateUsedSeconds != 1500 {
-		t.Errorf("AggregateUsedSeconds = %d, want 1500", subject.AggregateUsedSeconds)
+	if response.AggregateUsedSeconds != 1500 {
+		t.Errorf("AggregateUsedSeconds = %d, want 1500", response.AggregateUsedSeconds)
 	}
 }
 
@@ -405,15 +348,34 @@ func newTestServerWithConfig(t *testing.T, configJSON string, now time.Time) (*S
 	if err != nil {
 		t.Fatalf("NewStore() error = %v", err)
 	}
-	server := NewServer(config, store)
+	server := NewServer(config, store, testKey)
 	server.now = func() time.Time { return now }
 	return server, store
 }
 
+func authorize(req *http.Request) {
+	req.Header.Set("Authorization", "Bearer "+testKey)
+}
+
+func getListing(server *Server) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/enforcers", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	return rec
+}
+
 func putStatus(t *testing.T, server *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/status", strings.NewReader(body))
-	req.RemoteAddr = "192.0.2.10:1234"
+	return putStatusAs(t, server, "test-host", body)
+}
+
+func putStatusAs(t *testing.T, server *Server, hostname, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	if hostname != "test-host" {
+		body = strings.Replace(body, `"hostname": "test-host"`, `"hostname": "`+hostname+`"`, 1)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/status/dani", strings.NewReader(body))
+	authorize(req)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	return rec
@@ -427,12 +389,12 @@ func statusBodyWithDay(used int64, day string) string {
 	return `{
 		"observed_at": "2024-06-03T10:00:00Z",
 		"enforcer_version": "0.2.0",
+		"hostname": "test-host",
 		"health": {"status": "ok", "last_error": null},
-		"subjects": [
-			{"subject": "dani", "account": "dani", "account_present": true,
-			 "session_count": 1, "active": true, "locked": false,
-			 "usage": [{"day": "` + day + `", "used_seconds": ` + itoa(used) + `}]}
-		],
+		"active": true,
+		"locked": false,
+		"session_count": 1,
+		"usage": [{"day": "` + day + `", "used_seconds": ` + itoa(used) + `}],
 		"processes": [
 			{"user": "dani", "name": "firefox", "scope": "app",
 			 "instances": 1, "memory_rss_bytes": 100, "cpu_seconds_total": 2.5}

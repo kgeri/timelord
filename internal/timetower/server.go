@@ -3,13 +3,15 @@ package timetower
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ const maxStatusBytes = 8 << 20
 type Server struct {
 	cfg   *Config
 	store *Store
+	key   string
 	now   func() time.Time
 	mux   *http.ServeMux
 
@@ -30,26 +33,47 @@ type Server struct {
 	online   map[string]bool
 }
 
-// NewServer returns a Timetower API server.
-func NewServer(cfg *Config, store *Store) *Server {
+// NewServer returns a Timetower API server. key is the shared bearer key.
+func NewServer(cfg *Config, store *Store, key string) *Server {
 	s := &Server{
 		cfg:      cfg,
 		store:    store,
+		key:      key,
 		now:      time.Now,
 		lastSeen: make(map[string]time.Time),
 		online:   make(map[string]bool),
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/schedule", s.handleSchedule)
-	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/schedule/", s.handleSchedule)
+	mux.HandleFunc("/api/v1/status/", s.handleStatus)
 	mux.HandleFunc("/api/v1/enforcers", s.handleEnforcers)
 	s.mux = mux
 	return s
 }
 
-// ServeHTTP implements http.Handler.
+// ServeHTTP implements http.Handler. The schedule and status endpoints require
+// the shared bearer key; the Enforcer listing is public for now.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/schedule/") || strings.HasPrefix(r.URL.Path, "/api/v1/status/") {
+		if !s.authorized(r) {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) authorized(r *http.Request) bool {
+	if s.key == "" {
+		return false
+	}
+	header := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(header, prefix)), []byte(s.key)) == 1
 }
 
 func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
@@ -59,39 +83,33 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enforcer, ok := s.enforcerForRequest(r)
+	userName, ok := userFromPath(r, "/api/v1/schedule/")
 	if !ok {
-		s.rejectUnknownEnforcer(w, r)
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	user, ok := s.cfg.UserByName(userName)
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
 
 	now := s.now().UTC()
-	s.markSeen(enforcer, now)
 	day := now.In(s.cfg.Location()).Format(dateLayout)
+	used := s.store.AggregateUsage(user.Name, day)
 	response := Schedule{
 		SchemaVersion:         SchemaVersion,
 		ServerTime:            now,
 		Timezone:              s.cfg.Timezone,
 		StatusIntervalSeconds: s.cfg.StatusIntervalSeconds,
 		OfflineGraceSeconds:   s.cfg.OfflineGraceSeconds,
-		Subjects:              make([]ScheduleSubject, 0, len(enforcer.Accounts)),
-	}
-	for _, account := range enforcer.Accounts {
-		subject, ok := s.cfg.SubjectByID(account.Subject)
-		if !ok {
-			continue
-		}
-		used := s.store.AggregateUsage(subject.ID, day)
-		response.Subjects = append(response.Subjects, ScheduleSubject{
-			Subject: subject.ID,
-			Account: account.Account,
-			Policy:  subject.Policy,
-			Usage: UsageState{
-				Day:              day,
-				UsedSeconds:      used,
-				RemainingSeconds: remainingSeconds(subject.Policy, used),
-			},
-		})
+		User:                  user.Name,
+		Policy:                user.Policy,
+		Usage: UsageState{
+			Day:              day,
+			UsedSeconds:      used,
+			RemainingSeconds: remainingSeconds(user.Policy, used),
+		},
 	}
 
 	writeRevision(w, s.cfg.Revision())
@@ -105,9 +123,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enforcer, ok := s.enforcerForRequest(r)
+	userName, ok := userFromPath(r, "/api/v1/status/")
 	if !ok {
-		s.rejectUnknownEnforcer(w, r)
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	user, ok := s.cfg.UserByName(userName)
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
 
@@ -123,7 +146,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	now := s.now().UTC()
 	serverDay := now.In(s.cfg.Location()).Format(dateLayout)
-	acknowledged, err := s.recordUsage(enforcer, request, serverDay)
+	acknowledged, err := s.recordUsage(request.Hostname, user.Name, request, serverDay)
 	if err != nil {
 		var mismatch *dayMismatchError
 		if errors.As(err, &mismatch) {
@@ -134,9 +157,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.markSeen(enforcer, now)
-	s.store.SetStatus(enforcer.Name, StatusRecord{
-		Enforcer:   enforcer.Name,
+	s.markSeen(request.Hostname, now)
+	s.store.SetStatus(request.Hostname, user.Name, StatusRecord{
+		Hostname:   request.Hostname,
+		User:       user.Name,
 		ReceivedAt: now,
 		Request:    request,
 	})
@@ -144,7 +168,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARN: save state: %v", err)
 	}
 
-	response := s.statusResponse(enforcer, acknowledged, now, serverDay)
+	response := s.statusResponse(user, request.Hostname, acknowledged, now, serverDay)
 	writeRevision(w, s.cfg.Revision())
 	writeJSON(w, http.StatusOK, response)
 }
@@ -176,15 +200,15 @@ func (s *Server) Monitor(ctx context.Context) {
 	}
 }
 
-func (s *Server) markSeen(enforcer *Enforcer, now time.Time) {
+func (s *Server) markSeen(hostname string, now time.Time) {
 	s.mu.Lock()
-	wasOnline := s.online[enforcer.Name]
-	s.online[enforcer.Name] = true
-	s.lastSeen[enforcer.Name] = now
+	wasOnline := s.online[hostname]
+	s.online[hostname] = true
+	s.lastSeen[hostname] = now
 	s.mu.Unlock()
 
 	if !wasOnline {
-		log.Printf("INFO: enforcer %q connected from %s", enforcer.Name, enforcer.IP)
+		log.Printf("INFO: enforcer %q connected", hostname)
 	}
 }
 
@@ -195,30 +219,30 @@ func (s *Server) checkTimeouts(now time.Time) {
 	}
 
 	type lostEnforcer struct {
-		name string
-		last time.Time
+		hostname string
+		last     time.Time
 	}
 	var lost []lostEnforcer
 
 	s.mu.Lock()
-	for name, last := range s.lastSeen {
-		if s.online[name] && now.Sub(last) > timeout {
-			s.online[name] = false
-			lost = append(lost, lostEnforcer{name: name, last: last})
+	for hostname, last := range s.lastSeen {
+		if s.online[hostname] && now.Sub(last) > timeout {
+			s.online[hostname] = false
+			lost = append(lost, lostEnforcer{hostname: hostname, last: last})
 		}
 	}
 	s.mu.Unlock()
 
 	for _, enforcer := range lost {
-		log.Printf("WARN: enforcer %q heartbeat lost (last seen %s)", enforcer.name, enforcer.last.UTC().Format(time.RFC3339))
+		log.Printf("WARN: enforcer %q heartbeat lost (last seen %s)", enforcer.hostname, enforcer.last.UTC().Format(time.RFC3339))
 	}
 }
 
-func (s *Server) presence(name string) (bool, *time.Time) {
+func (s *Server) presence(hostname string) (bool, *time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	online := s.online[name]
-	last, ok := s.lastSeen[name]
+	online := s.online[hostname]
+	last, ok := s.lastSeen[hostname]
 	if !ok {
 		return online, nil
 	}
@@ -232,35 +256,52 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 	response := EnforcerList{
 		ServerTime: now,
 		ServerDay:  day,
-		Enforcers:  make([]EnforcerStatus, 0, len(s.cfg.Enforcers)),
+		Enforcers:  make([]EnforcerStatus, 0),
 	}
 
-	for i := range s.cfg.Enforcers {
-		enforcer := &s.cfg.Enforcers[i]
-		online, lastSeen := s.presence(enforcer.Name)
+	records := s.store.StatusRecords()
+	byHostname := make(map[string][]StatusRecord)
+	lastKnown := make(map[string]time.Time)
+	for _, record := range records {
+		byHostname[record.Hostname] = append(byHostname[record.Hostname], record)
+		if record.ReceivedAt.After(lastKnown[record.Hostname]) {
+			lastKnown[record.Hostname] = record.ReceivedAt
+		}
+	}
+
+	hostnames := make([]string, 0, len(byHostname))
+	for hostname := range byHostname {
+		hostnames = append(hostnames, hostname)
+	}
+	sort.Strings(hostnames)
+
+	for _, hostname := range hostnames {
+		online, lastSeen := s.presence(hostname)
+		if lastSeen == nil {
+			last := lastKnown[hostname].UTC()
+			lastSeen = &last
+		}
 		status := EnforcerStatus{
-			IP:       enforcer.IP,
-			Name:     enforcer.Name,
+			Hostname: hostname,
 			Online:   online,
 			LastSeen: lastSeen,
-			Subjects: make([]EnforcerSubjectStatus, 0, len(enforcer.Accounts)),
+			Users:    make([]UserStatus, 0, len(byHostname[hostname])),
 		}
-		for _, account := range enforcer.Accounts {
-			subject, ok := s.cfg.SubjectByID(account.Subject)
+		for _, record := range byHostname[hostname] {
+			user, ok := s.cfg.UserByName(record.User)
 			if !ok {
 				continue
 			}
-			policy := subject.Policy
-			used := s.store.AggregateUsage(subject.ID, day)
+			policy := user.Policy
+			used := s.store.AggregateUsage(user.Name, day)
 			inside := policy.InsideWindow(now, loc)
 			allowed := policy.Allowed(now, used, loc)
 			var limit int64
 			if policy != nil {
 				limit = policy.DailyLimitSeconds
 			}
-			status.Subjects = append(status.Subjects, EnforcerSubjectStatus{
-				Subject:           subject.ID,
-				Account:           account.Account,
+			status.Users = append(status.Users, UserStatus{
+				User:              user.Name,
 				UsedSeconds:       used,
 				DailyLimitSeconds: limit,
 				RemainingSeconds:  remainingSeconds(policy, used),
@@ -274,154 +315,74 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 	return response
 }
 
-func (s *Server) statusResponse(enforcer *Enforcer, acknowledged map[string][]string, now time.Time, serverDay string) StatusResponse {
+func (s *Server) statusResponse(user *User, hostname string, acknowledged []string, now time.Time, serverDay string) StatusResponse {
 	loc := s.cfg.Location()
-	response := StatusResponse{
-		ServerTime: now,
-		ServerDay:  serverDay,
-		Subjects:   make([]StatusResponseSubject, 0, len(enforcer.Accounts)),
+	policy := user.Policy
+	reported := s.store.Usage(hostname, user.Name, serverDay)
+	aggregate := s.store.AggregateUsage(user.Name, serverDay)
+	inside := policy.InsideWindow(now, loc)
+	allowed := policy.Allowed(now, aggregate, loc)
+	var limit int64
+	if policy != nil {
+		limit = policy.DailyLimitSeconds
 	}
-	for _, account := range enforcer.Accounts {
-		subject, ok := s.cfg.SubjectByID(account.Subject)
-		if !ok {
-			continue
-		}
-		policy := subject.Policy
-		reported := s.store.Usage(enforcer.Name, subject.ID, serverDay)
-		aggregate := s.store.AggregateUsage(subject.ID, serverDay)
-		inside := policy.InsideWindow(now, loc)
-		allowed := policy.Allowed(now, aggregate, loc)
-		var limit int64
-		if policy != nil {
-			limit = policy.DailyLimitSeconds
-		}
-		days := acknowledged[subject.ID]
-		if days == nil {
-			days = []string{}
-		}
-		response.Subjects = append(response.Subjects, StatusResponseSubject{
-			Subject:              subject.ID,
-			CurrentDay:           serverDay,
-			ReportedUsedSeconds:  reported,
-			AggregateUsedSeconds: aggregate,
-			DailyLimitSeconds:    limit,
-			RemainingSeconds:     remainingSeconds(policy, aggregate),
-			InsideWindow:         inside,
-			Allowed:              allowed,
-			DenyReason:           denyReason(policy, inside, limit, aggregate),
-			AcknowledgedDays:     days,
-		})
+	days := acknowledged
+	if days == nil {
+		days = []string{}
 	}
-	return response
+	return StatusResponse{
+		ServerTime:           now,
+		ServerDay:            serverDay,
+		User:                 user.Name,
+		CurrentDay:           serverDay,
+		ReportedUsedSeconds:  reported,
+		AggregateUsedSeconds: aggregate,
+		DailyLimitSeconds:    limit,
+		RemainingSeconds:     remainingSeconds(policy, aggregate),
+		InsideWindow:         inside,
+		Allowed:              allowed,
+		DenyReason:           denyReason(policy, inside, limit, aggregate),
+		AcknowledgedDays:     days,
+	}
 }
 
-func (s *Server) recordUsage(enforcer *Enforcer, request StatusRequest, serverDay string) (map[string][]string, error) {
-	assigned := make(map[string]bool, len(enforcer.Accounts))
-	for _, account := range enforcer.Accounts {
-		assigned[account.Subject] = true
-	}
-
-	acknowledged := make(map[string][]string)
-	seenBySubject := make(map[string]map[string]bool)
-	for _, subject := range request.Subjects {
-		if !assigned[subject.Subject] {
-			continue
+func (s *Server) recordUsage(hostname, user string, request StatusRequest, serverDay string) ([]string, error) {
+	acknowledged := make([]string, 0, len(request.Usage))
+	seen := make(map[string]bool, len(request.Usage))
+	for _, usage := range request.Usage {
+		if usage.Day > serverDay {
+			return nil, &dayMismatchError{serverDay: serverDay}
 		}
-		seen := seenBySubject[subject.Subject]
-		if seen == nil {
-			seen = make(map[string]bool, len(subject.Usage))
-			seenBySubject[subject.Subject] = seen
-		}
-		for _, usage := range subject.Usage {
-			if usage.Day > serverDay {
-				return nil, &dayMismatchError{serverDay: serverDay}
-			}
-			s.store.RecordUsage(enforcer.Name, subject.Subject, usage.Day, usage.UsedSeconds)
-			if !seen[usage.Day] {
-				acknowledged[subject.Subject] = append(acknowledged[subject.Subject], usage.Day)
-				seen[usage.Day] = true
-			}
+		s.store.RecordUsage(hostname, user, usage.Day, usage.UsedSeconds)
+		if !seen[usage.Day] {
+			acknowledged = append(acknowledged, usage.Day)
+			seen[usage.Day] = true
 		}
 	}
 	return acknowledged, nil
 }
 
-func (s *Server) rejectUnknownEnforcer(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
-	log.Printf("WARN: unknown enforcer ip=%q remote=%q x-forwarded-for=%q x-real-ip=%q forwarded=%q",
-		ip, r.RemoteAddr, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"), r.Header.Get("Forwarded"))
-	http.Error(w, "unknown enforcer", http.StatusForbidden)
-}
-
-func (s *Server) enforcerForRequest(r *http.Request) (*Enforcer, bool) {
-	// Try every address in the forwarded chain. Traefik may append its own
-	// peer address after the real client, and a k3s service hop can add
-	// another address. Only configured Enforcer addresses are accepted.
-	for _, ip := range clientIPs(r) {
-		if enforcer, ok := s.cfg.EnforcerByIP(ip.String()); ok {
-			return enforcer, true
-		}
+func userFromPath(r *http.Request, prefix string) (string, bool) {
+	raw := strings.TrimPrefix(r.URL.Path, prefix)
+	if raw == "" || strings.Contains(raw, "/") {
+		return "", false
 	}
-	return nil, false
-}
-
-// clientIPs returns the resolved client addresses in preference order. The
-// X-Forwarded-For chain is walked from right to left, followed by X-Real-IP and
-// the direct peer address.
-func clientIPs(r *http.Request) []net.IP {
-	var addresses []net.IP
-	seen := make(map[string]bool)
-
-	add := func(value string) {
-		ip := parseIP(strings.TrimSpace(value))
-		if ip == nil {
-			return
-		}
-		key := ip.String()
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		addresses = append(addresses, ip)
+	user, err := url.PathUnescape(raw)
+	if err != nil || user == "" || strings.Contains(user, "/") {
+		return "", false
 	}
-
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			add(parts[i])
-		}
-	}
-	add(r.Header.Get("X-Real-IP"))
-
-	host := r.RemoteAddr
-	if splitHost, _, err := net.SplitHostPort(host); err == nil {
-		host = splitHost
-	}
-	add(host)
-	return addresses
-}
-
-func clientIP(r *http.Request) net.IP {
-	addresses := clientIPs(r)
-	if len(addresses) == 0 {
-		return nil
-	}
-	return addresses[0]
-}
-
-func parseIP(value string) net.IP {
-	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
-		value = value[1 : len(value)-1]
-	}
-	if i := strings.LastIndex(value, "%"); i >= 0 {
-		value = value[:i]
-	}
-	return net.ParseIP(value)
+	return user, true
 }
 
 func validateStatusRequest(request *StatusRequest) error {
 	if request.ObservedAt.IsZero() {
 		return fmt.Errorf("observed_at is required")
+	}
+	if request.Hostname == "" {
+		return fmt.Errorf("hostname is required")
+	}
+	if len(request.Hostname) > 256 {
+		return fmt.Errorf("hostname is longer than 256 bytes")
 	}
 	switch request.Health.Status {
 	case "ok", "degraded", "starting":
@@ -431,30 +392,22 @@ func validateStatusRequest(request *StatusRequest) error {
 	if request.Health.LastError != nil && len(*request.Health.LastError) > 1024 {
 		return fmt.Errorf("health.last_error is longer than 1024 bytes")
 	}
+	if request.SessionCount < 0 {
+		return fmt.Errorf("session_count must not be negative")
+	}
+	if len(request.Usage) > 7 {
+		return fmt.Errorf("usage has more than 7 entries")
+	}
+	for i, usage := range request.Usage {
+		if _, err := time.Parse(dateLayout, usage.Day); err != nil {
+			return fmt.Errorf("usage[%d]: invalid day %q", i, usage.Day)
+		}
+		if usage.UsedSeconds < 0 {
+			return fmt.Errorf("usage[%d]: used_seconds must not be negative", i)
+		}
+	}
 	if request.CollectedInMS < 0 {
 		return fmt.Errorf("collected_in_ms must not be negative")
-	}
-	for i, subject := range request.Subjects {
-		if subject.Subject == "" {
-			return fmt.Errorf("subjects[%d]: subject is empty", i)
-		}
-		if subject.SessionCount < 0 {
-			return fmt.Errorf("subjects[%d]: session_count must not be negative", i)
-		}
-		if len(subject.Account) > 256 {
-			return fmt.Errorf("subjects[%d]: account is longer than 256 bytes", i)
-		}
-		if len(subject.Usage) > 7 {
-			return fmt.Errorf("subjects[%d]: usage has more than 7 entries", i)
-		}
-		for j, usage := range subject.Usage {
-			if _, err := time.Parse(dateLayout, usage.Day); err != nil {
-				return fmt.Errorf("subjects[%d].usage[%d]: invalid day %q", i, j, usage.Day)
-			}
-			if usage.UsedSeconds < 0 {
-				return fmt.Errorf("subjects[%d].usage[%d]: used_seconds must not be negative", i, j)
-			}
-		}
 	}
 	for i, process := range request.Processes {
 		switch process.Scope {

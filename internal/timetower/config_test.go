@@ -24,22 +24,18 @@ func TestLoadConfig(t *testing.T) {
 		t.Error("Revision() = 0, want non-zero")
 	}
 
-	enforcer, ok := config.EnforcerByIP("192.0.2.10")
+	user, ok := config.UserByName("dani")
 	if !ok {
-		t.Fatal("EnforcerByIP(192.0.2.10) not found")
+		t.Fatal("UserByName(dani) not found")
 	}
-	if enforcer.Name != "test-pc" {
-		t.Errorf("enforcer.Name = %q, want test-pc", enforcer.Name)
+	if user.DisplayName != "Dani" {
+		t.Errorf("DisplayName = %q, want Dani", user.DisplayName)
 	}
-	subject, ok := config.SubjectByID("dani")
-	if !ok {
-		t.Fatal("SubjectByID(dani) not found")
+	if user.Policy == nil {
+		t.Fatal("user.Policy = nil")
 	}
-	if subject.Policy == nil {
-		t.Fatal("subject.Policy = nil")
-	}
-	if subject.Policy.DailyLimitSeconds != 3600 {
-		t.Errorf("DailyLimitSeconds = %d, want 3600", subject.Policy.DailyLimitSeconds)
+	if user.Policy.DailyLimitSeconds != 3600 {
+		t.Errorf("DailyLimitSeconds = %d, want 3600", user.Policy.DailyLimitSeconds)
 	}
 }
 
@@ -48,17 +44,14 @@ func TestLoadDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig(default) error = %v", err)
 	}
-	if _, ok := config.EnforcerByIP("192.168.3.22"); !ok {
-		t.Fatal("default enforcer not found")
-	}
-	subject, ok := config.SubjectByID("dani")
+	user, ok := config.UserByName("dani")
 	if !ok {
-		t.Fatal("default subject not found")
+		t.Fatal("default user not found")
 	}
-	if subject.Policy == nil || subject.Policy.DailyLimitSeconds != 3600 {
-		t.Fatalf("default daily limit = %+v, want 3600 seconds", subject.Policy)
+	if user.Policy == nil || user.Policy.DailyLimitSeconds != 3600 {
+		t.Fatalf("default daily limit = %+v, want 3600 seconds", user.Policy)
 	}
-	for _, window := range subject.Policy.Windows {
+	for _, window := range user.Policy.Windows {
 		if window.Day == policy.Tuesday && window.End.String() != "20:30" {
 			t.Errorf("Tuesday end = %s, want 20:30", window.End)
 		}
@@ -77,44 +70,27 @@ func TestConfigValidateRejectsInvalidValues(t *testing.T) {
 		"empty timezone": `{
 			"timezone":"",
 			"status_interval_seconds":60,
-			"subjects":[],
-			"enforcers":[]
+			"users":[]
 		}`,
 		"bad timezone": `{
 			"timezone":"Not/AZone",
 			"status_interval_seconds":60,
-			"subjects":[],
-			"enforcers":[]
+			"users":[]
 		}`,
 		"zero status interval": `{
 			"timezone":"UTC",
 			"status_interval_seconds":0,
-			"subjects":[],
-			"enforcers":[]
+			"users":[]
 		}`,
-		"duplicate subject": `{
+		"duplicate user": `{
 			"timezone":"UTC",
 			"status_interval_seconds":60,
-			"subjects":[{"id":"dani"},{"id":"dani"}],
-			"enforcers":[]
-		}`,
-		"unknown account subject": `{
-			"timezone":"UTC",
-			"status_interval_seconds":60,
-			"subjects":[],
-			"enforcers":[{"ip":"192.0.2.10","accounts":[{"subject":"dani","account":"dani"}]}]
-		}`,
-		"duplicate IP": `{
-			"timezone":"UTC",
-			"status_interval_seconds":60,
-			"subjects":[],
-			"enforcers":[{"ip":"192.0.2.10"},{"ip":"192.0.2.10"}]
+			"users":[{"name":"dani"},{"name":"dani"}]
 		}`,
 		"bad window": `{
 			"timezone":"UTC",
 			"status_interval_seconds":60,
-			"subjects":[{"id":"dani","policy":{"enabled":true,"daily_limit_seconds":0,"windows":[{"day":"mon","start":"19:00","end":"08:00"}]}}],
-			"enforcers":[]
+			"users":[{"name":"dani","policy":{"enabled":true,"daily_limit_seconds":0,"windows":[{"day":"mon","start":"19:00","end":"08:00"}]}}]
 		}`,
 	}
 
@@ -178,9 +154,9 @@ const testConfigJSON = `{
 	"timezone": "UTC",
 	"status_interval_seconds": 60,
 	"offline_grace_seconds": 3600,
-	"subjects": [
+	"users": [
 		{
-			"id": "dani",
+			"name": "dani",
 			"display_name": "Dani",
 			"policy": {
 				"enabled": true,
@@ -189,15 +165,6 @@ const testConfigJSON = `{
 					{"day": "mon", "start": "00:00", "end": "23:59"}
 				]
 			}
-		}
-	],
-	"enforcers": [
-		{
-			"ip": "192.0.2.10",
-			"name": "test-pc",
-			"accounts": [
-				{"subject": "dani", "account": "dani"}
-			]
 		}
 	]
 }`
