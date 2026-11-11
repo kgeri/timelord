@@ -70,8 +70,18 @@ func (w *apiWorld) enforcerSubmitsReportFile(fixture, user string) error {
 	if err != nil {
 		return fmt.Errorf("read status fixture %q: %w", fixture, err)
 	}
+	w.status = StatusResponse{}
 	w.statusRec = nil
-	return w.submit(http.MethodPut, "/api/v1/status/"+user, body, authBearer)
+	if err := w.submit(http.MethodPut, "/api/v1/status/"+user, body, authBearer); err != nil {
+		return err
+	}
+	w.statusRec = w.rec
+	if w.rec.Code == http.StatusOK {
+		if err := json.Unmarshal(w.rec.Body.Bytes(), &w.status); err != nil {
+			return fmt.Errorf("decode status: %w", err)
+		}
+	}
+	return nil
 }
 
 type statusExpectation struct {

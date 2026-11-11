@@ -148,8 +148,13 @@ discarded.
 ### Status
 
 An Enforcer sends its hostname, per-user session state, usage counter, and
-process statistics in every status request. Timetower stores the latest status
-per hostname and user.
+process statistics in every status request. The user is already identified by
+the request path, so process entries do not repeat it. Timetower stores the
+latest status per hostname and user.
+
+Status requests ignore unknown fields so Enforcers and Timetower can be
+upgraded independently. Override requests reject unknown fields, because a
+misspelled field would otherwise be silently ignored.
 
 Both schedule and status responses carry an `X-Schedule-Revision` header.
 When the status response returns a different revision than the one the

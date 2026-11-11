@@ -148,7 +148,7 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request OverrideRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeJSONStrict(r, &request); err != nil {
 		writeDecodeError(w, err)
 		return
 	}
@@ -298,7 +298,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request StatusRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeJSONLenient(r, &request); err != nil {
 		writeDecodeError(w, err)
 		return
 	}
@@ -627,7 +627,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	}
 }
 
-func decodeJSON(r *http.Request, value any) error {
+// decodeJSONStrict rejects unknown fields. Use it for operator-controlled
+// input, where a misspelled field would otherwise be silently ignored.
+func decodeJSONStrict(r *http.Request, value any) error {
+	return decodeJSON(r, value, true)
+}
+
+// decodeJSONLenient ignores unknown fields. Use it for machine-to-machine
+// input that must survive rolling client/server upgrades.
+func decodeJSONLenient(r *http.Request, value any) error {
+	return decodeJSON(r, value, false)
+}
+
+func decodeJSON(r *http.Request, value any, strict bool) error {
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxStatusBytes+1))
 	if err != nil {
 		return err
@@ -637,7 +649,9 @@ func decodeJSON(r *http.Request, value any) error {
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	if strict {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(value); err != nil {
 		return err
 	}

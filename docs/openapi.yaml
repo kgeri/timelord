@@ -34,13 +34,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Schedule'
         '401':
-          description: Missing or invalid bearer key.
+          $ref: '#/components/responses/Unauthorized'
         '404':
-          description: The user is not configured.
+          $ref: '#/components/responses/NotFound'
         '500':
-          description: Internal server error.
+          $ref: '#/components/responses/InternalServerError'
         '503':
-          description: Service unavailable.
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/status/{user}:
     put:
@@ -74,21 +74,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
         '400':
-          description: Malformed request.
+          $ref: '#/components/responses/BadRequest'
         '401':
-          description: Missing or invalid bearer key.
+          $ref: '#/components/responses/Unauthorized'
         '404':
-          description: The user is not configured.
+          $ref: '#/components/responses/NotFound'
         '409':
-          description: Usage day is later than the server's policy day.
+          $ref: '#/components/responses/Conflict'
         '413':
-          description: Request body exceeds the configured limit.
+          $ref: '#/components/responses/PayloadTooLarge'
         '422':
-          description: Validation failed.
+          $ref: '#/components/responses/ValidationFailed'
         '500':
-          description: Internal server error.
+          $ref: '#/components/responses/InternalServerError'
         '503':
-          description: Service unavailable.
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/override/{user}:
     put:
@@ -131,17 +131,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/Override'
         '400':
-          description: Malformed request.
+          $ref: '#/components/responses/BadRequest'
         '401':
-          description: Missing or invalid bearer key.
+          $ref: '#/components/responses/Unauthorized'
         '404':
-          description: The user is not configured.
+          $ref: '#/components/responses/NotFound'
         '405':
-          description: Method not allowed.
+          $ref: '#/components/responses/MethodNotAllowed'
         '422':
-          description: Validation failed, or the user has no policy.
+          $ref: '#/components/responses/OverrideValidationFailed'
         '500':
-          description: Internal server error.
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/enforcers:
     get:
@@ -159,11 +159,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/EnforcerList'
         '405':
-          description: Method not allowed.
+          $ref: '#/components/responses/MethodNotAllowed'
         '500':
-          description: Internal server error.
+          $ref: '#/components/responses/InternalServerError'
         '503':
-          description: Service unavailable.
+          $ref: '#/components/responses/ServiceUnavailable'
 
 components:
   securitySchemes:
@@ -180,6 +180,28 @@ components:
       description: Account name.
       schema:
         type: string
+
+  responses:
+    BadRequest:
+      description: Malformed request.
+    Unauthorized:
+      description: Missing or invalid bearer key.
+    NotFound:
+      description: The user is not configured.
+    MethodNotAllowed:
+      description: Method not allowed.
+    Conflict:
+      description: Usage day is later than the server's policy day.
+    PayloadTooLarge:
+      description: Request body exceeds the configured limit.
+    ValidationFailed:
+      description: Validation failed.
+    OverrideValidationFailed:
+      description: Validation failed, or the user has no policy.
+    InternalServerError:
+      description: Internal server error.
+    ServiceUnavailable:
+      description: Service unavailable.
 
   schemas:
     Window:
@@ -285,10 +307,8 @@ components:
     ProcessStat:
       type: object
       additionalProperties: false
-      required: [user, name, scope, instances, memory_rss_bytes, cpu_seconds_total]
+      required: [name, scope, instances, memory_rss_bytes, cpu_seconds_total]
       properties:
-        user:
-          type: string
         name:
           type: string
         scope:
@@ -334,6 +354,7 @@ components:
           minimum: 0
         processes:
           type: array
+          description: Process statistics for the user in the path.
           items:
             $ref: '#/components/schemas/ProcessStat'
       example:
@@ -346,8 +367,7 @@ components:
         usage_seconds: 1234
         collected_in_ms: 120
         processes:
-          - user: dani
-            name: firefox
+          - name: firefox
             scope: app
             instances: 5
             memory_rss_bytes: 734003200

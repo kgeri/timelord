@@ -66,9 +66,11 @@ Feature: Status reporting
     When the enforcer submits report file "request-invalid.json" for user "dani"
     Then the response status is 400
 
-  Scenario: Unknown report fields are rejected
+  Scenario: Unknown report fields are ignored
     When the enforcer submits report file "request-unknown-field.json" for user "dani"
-    Then the response status is 400
+    Then the response status is 200
+    And the status is:
+      | reported_used_seconds | 100 |
 
   Scenario: Reports outside the window are denied
     Given a Timetower server with configuration "config/outside-window.json" at "2024-06-03T20:00:00Z"

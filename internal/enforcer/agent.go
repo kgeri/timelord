@@ -355,7 +355,6 @@ func (a *Agent) processStats() []timetower.ProcessStat {
 			scope = "system"
 		}
 		stats = append(stats, timetower.ProcessStat{
-			User:            entry.User,
 			Name:            entry.Name,
 			Scope:           scope,
 			Instances:       entry.Count,

@@ -47,9 +47,9 @@ type StatusRequest struct {
 	Processes       []ProcessStat `json:"processes"`
 }
 
-// ProcessStat is one aggregate process series.
+// ProcessStat is one aggregate process series. The owning user comes from the
+// status endpoint's path, so it is not repeated on every entry.
 type ProcessStat struct {
-	User            string  `json:"user"`
 	Name            string  `json:"name"`
 	Scope           string  `json:"scope"`
 	Instances       int     `json:"instances"`

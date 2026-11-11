@@ -8,7 +8,7 @@
   "usage_seconds": 100,
   "unexpected": true,
   "processes": [
-    {"user": "dani", "name": "firefox", "scope": "app",
+    {"name": "firefox", "scope": "app",
      "instances": 1, "memory_rss_bytes": 100, "cpu_seconds_total": 2.5}
   ]
 }
