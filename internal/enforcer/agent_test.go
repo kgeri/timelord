@@ -44,8 +44,8 @@ func TestAgentRecordsUsageAndReportsStatus(t *testing.T) {
 	if !request.Active {
 		t.Errorf("Active = false, want true")
 	}
-	if len(request.Usage) != 1 || request.Usage[0].UsedSeconds != 15 {
-		t.Errorf("Usage = %+v, want current day 15 seconds", request.Usage)
+	if request.UsageSeconds != 15 {
+		t.Errorf("UsageSeconds = %d, want 15", request.UsageSeconds)
 	}
 	if len(request.Processes) != 1 {
 		t.Fatalf("len(Processes) = %d, want 1", len(request.Processes))
@@ -152,7 +152,7 @@ func TestAgentTerminatesDeniedSession(t *testing.T) {
 	}
 }
 
-func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
+func TestAgentDayChangeResetsUsage(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
 	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
@@ -165,21 +165,17 @@ func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
 	state.reported = 100
 	state.aggregate = 500
 
-	agent.rolloverDay("2024-06-04")
+	agent.setDay("2024-06-03")
+	if state.local != 100 || state.reported != 100 || state.aggregate != 500 {
+		t.Errorf("state after same-day update = %+v, want unchanged", state)
+	}
 
+	agent.setDay("2024-06-04")
 	if agent.day != "2024-06-04" {
 		t.Errorf("day = %q, want 2024-06-04", agent.day)
 	}
 	if state.local != 0 || state.reported != 0 || state.aggregate != 0 {
-		t.Errorf("state after rollover = %+v, want zeros", state)
-	}
-	if state.pending["2024-06-03"] != 100 {
-		t.Errorf("pending usage = %d, want 100", state.pending["2024-06-03"])
-	}
-
-	agent.rolloverDay("2024-06-11")
-	if _, ok := state.pending["2024-06-03"]; ok {
-		t.Error("old pending day was not pruned")
+		t.Errorf("state after day change = %+v, want zeros", state)
 	}
 }
 
@@ -204,9 +200,6 @@ func TestAgentAdoptsServerDayOnStatus(t *testing.T) {
 	}
 	if agent.day != "2024-06-04" {
 		t.Errorf("day = %q, want 2024-06-04", agent.day)
-	}
-	if state.pending["2024-06-03"] != 100 {
-		t.Errorf("pending usage = %d, want 100", state.pending["2024-06-03"])
 	}
 	if state.local != 20 {
 		t.Errorf("local usage = %d, want 20", state.local)

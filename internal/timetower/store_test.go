@@ -63,7 +63,7 @@ func TestStorePersistenceWritesCSV(t *testing.T) {
 			ObservedAt:      time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
 			EnforcerVersion: "0.2.0",
 			Hostname:        "pc-one",
-			Health:          Health{Status: "ok"},
+			UsageSeconds:    0,
 			Processes:       []ProcessStat{},
 		},
 	})

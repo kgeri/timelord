@@ -9,6 +9,5 @@
   "remaining_seconds": 3100,
   "inside_window": true,
   "allowed": true,
-  "deny_reason": null,
-  "acknowledged_days": ["2024-06-03"]
+  "deny_reason": null
 }

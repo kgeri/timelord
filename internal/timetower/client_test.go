@@ -74,8 +74,7 @@ func TestClientSendStatus(t *testing.T) {
 		ObservedAt:      time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
 		EnforcerVersion: "test",
 		Hostname:        "test-host",
-		Health:          Health{Status: "ok"},
-		Usage:           []UsageEntry{},
+		UsageSeconds:    0,
 		Processes:       []ProcessStat{},
 	})
 	if err != nil {

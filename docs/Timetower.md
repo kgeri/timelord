@@ -100,22 +100,23 @@ schedule revision changes with the day so Enforcers refresh the current limit.
 ### Usage
 
 Timetower stores active seconds per hostname, user, and policy day. Each
-Enforcer reports an absolute, monotonic counter in its status request.
-Timetower stores the maximum counter reported for that hostname and day, and
-sums the per-hostname counters to obtain user usage.
+Enforcer reports one absolute, monotonic `usage_seconds` counter in its status
+request. Timetower stores the maximum counter reported for that hostname and the
+policy day inferred from `observed_at`, and sums the per-hostname counters to
+obtain user usage.
 
 The daily limit for the current policy day is shared across all hostnames.
 Active time on two hosts at the same time consumes the limit twice as fast.
 
-Counters reset at midnight in Timetower's policy time zone. Before resetting,
-an Enforcer moves the old day's counter into a pending set so unreported usage
-is not lost.
+Counters reset at midnight in Timetower's policy time zone. Only the current
+policy day is reported; usage that cannot be delivered before the day changes is
+discarded.
 
 ### Status
 
-An Enforcer sends its hostname, health, per-user session state, usage counters,
-and process statistics in every status request. Timetower stores the latest
-status per hostname and user.
+An Enforcer sends its hostname, per-user session state, usage counter, and
+process statistics in every status request. Timetower stores the latest status
+per hostname and user.
 
 Both schedule and status responses carry an `X-Schedule-Revision` header.
 When the status response returns a different revision than the one the
@@ -166,8 +167,7 @@ If Timetower is unreachable at startup, the Enforcer exits and the service
 manager restarts it. If contact is lost later, the Enforcer keeps enforcing the
 in-memory schedules and estimates usage locally. After `offline_grace_seconds`
 without a successful schedule or status call, it denies all configured users
-until a sync succeeds. Pending usage is reported on the next successful status
-request.
+until a sync succeeds. Usage from before the day change is not retried.
 
 ## Time
 
@@ -183,7 +183,7 @@ charging suspend or stall time.
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | `GET` | `/api/v1/schedule/{user}` | bearer key | Fetch one user's policy, usage, and remaining time. |
-| `PUT` | `/api/v1/status/{user}` | bearer key | Report health, usage, session state, and process statistics. |
+| `PUT` | `/api/v1/status/{user}` | bearer key | Report usage, session state, and process statistics. |
 | `GET` | `/api/v1/enforcers` | public | List reporting hostnames, online state, last contact, and remaining time. |
 
 Both schedule and status success responses carry `X-Schedule-Revision`. The
@@ -196,8 +196,8 @@ Timetower serves plain HTTP. The k3s ingress terminates TLS for
 ## Storage and retention
 
 Timetower reads its static configuration and stores daily usage in a CSV file.
-Status, health, and process statistics stay in memory and are repopulated by the
-next status reports. The Enforcer stores no schedule or usage files.
+Status and process statistics stay in memory and are repopulated by the next
+status reports. The Enforcer stores no schedule or usage files.
 
 The CSV columns are `date,user,hostname,used_seconds`. Daily usage is retained
 for 400 days.

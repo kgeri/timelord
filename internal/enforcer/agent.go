@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"time"
 
 	"timelord/internal/process"
@@ -75,7 +74,6 @@ type userState struct {
 	local     int64
 	reported  int64
 	aggregate int64
-	pending   map[string]int64
 }
 
 // New returns an Agent. The caller must provide a client, session source, and
@@ -99,7 +97,7 @@ func New(config Config) *Agent {
 		}
 		managed[user] = true
 		users = append(users, user)
-		states[user] = &userState{pending: make(map[string]int64)}
+		states[user] = &userState{}
 	}
 
 	return &Agent{
@@ -218,15 +216,12 @@ func (a *Agent) fetchSchedules(ctx context.Context) error {
 	a.statusInterval = statusInterval
 	a.offlineGrace = offlineGrace
 	a.revision = fetched[0].revision
-	a.rolloverDay(day)
+	a.setDay(day)
 	for _, item := range fetched {
 		state := a.states[item.user]
 		if state == nil {
-			state = &userState{pending: make(map[string]int64)}
+			state = &userState{}
 			a.states[item.user] = state
-		}
-		if state.pending == nil {
-			state.pending = make(map[string]int64)
 		}
 		state.policy = item.schedule.Policy
 		state.aggregate = item.schedule.Usage.UsedSeconds
@@ -239,7 +234,7 @@ func (a *Agent) fetchSchedules(ctx context.Context) error {
 
 func (a *Agent) enforce(ctx context.Context) {
 	now := a.now()
-	a.rolloverDay(now.In(a.loc).Format(dateLayout))
+	a.setDay(now.In(a.loc).Format(dateLayout))
 
 	sessions, err := a.sessions.Sessions(ctx)
 	if err != nil {
@@ -275,7 +270,7 @@ func (a *Agent) enforce(ctx context.Context) {
 
 func (a *Agent) reportStatuses(ctx context.Context) error {
 	now := a.now().UTC()
-	a.rolloverDay(now.In(a.loc).Format(dateLayout))
+	a.setDay(now.In(a.loc).Format(dateLayout))
 	processes := a.processStats()
 
 	var firstErr error
@@ -315,38 +310,21 @@ func (a *Agent) statusRequest(user string, state *userState, now time.Time, proc
 	sessions := sessionsForUser(a.lastSessions, user)
 	active, locked := sessionState(sessions)
 
-	usage := make([]timetower.UsageEntry, 0, len(state.pending)+1)
-	usage = append(usage, timetower.UsageEntry{Day: a.day, UsedSeconds: state.local})
-	for day, used := range state.pending {
-		if day == a.day {
-			continue
-		}
-		usage = append(usage, timetower.UsageEntry{Day: day, UsedSeconds: used})
-	}
-	sort.Slice(usage, func(i, j int) bool { return usage[i].Day < usage[j].Day })
-	if len(usage) > 7 {
-		usage = usage[len(usage)-7:]
-	}
-
 	return timetower.StatusRequest{
 		ObservedAt:      now,
 		EnforcerVersion: a.version,
 		Hostname:        a.hostname,
-		Health:          a.health(),
 		Active:          active,
 		Locked:          locked,
 		SessionCount:    len(sessions),
-		Usage:           usage,
+		UsageSeconds:    state.local,
 		Processes:       processes,
 	}
 }
 
 func (a *Agent) applyStatus(user string, state *userState, response *timetower.StatusResponse, sentLocal int64) {
-	dayChanged := response.ServerDay != "" && response.ServerDay != a.day
-	if dayChanged {
-		a.rolloverDay(response.ServerDay)
-		// The sent counter belongs to the previous policy day and was moved
-		// into the pending set by the rollover.
+	if response.ServerDay != "" && response.ServerDay != a.day {
+		a.setDay(response.ServerDay)
 		sentLocal = 0
 		state = a.states[user]
 		if state == nil {
@@ -363,11 +341,6 @@ func (a *Agent) applyStatus(user string, state *userState, response *timetower.S
 	}
 	state.reported = response.ReportedUsedSeconds
 	state.aggregate = response.AggregateUsedSeconds
-	for _, day := range response.AcknowledgedDays {
-		if day != a.day {
-			delete(state.pending, day)
-		}
-	}
 }
 
 func (a *Agent) processStats() []timetower.ProcessStat {
@@ -393,7 +366,7 @@ func (a *Agent) processStats() []timetower.ProcessStat {
 	return stats
 }
 
-func (a *Agent) rolloverDay(day string) {
+func (a *Agent) setDay(day string) {
 	if day == "" {
 		return
 	}
@@ -406,14 +379,9 @@ func (a *Agent) rolloverDay(day string) {
 	}
 
 	for _, state := range a.states {
-		if state.local > state.pending[a.day] {
-			state.pending[a.day] = state.local
-		}
 		state.local = 0
 		state.reported = 0
 		state.aggregate = 0
-		delete(state.pending, day)
-		prunePending(state.pending, day)
 	}
 	a.day = day
 }
@@ -457,16 +425,6 @@ func (a *Agent) elapsed(now time.Time) time.Duration {
 	}
 	a.lastTick = now
 	return elapsed
-}
-
-func (a *Agent) health() timetower.Health {
-	health := timetower.Health{Status: "ok"}
-	if a.sessionError != "" {
-		health.Status = "degraded"
-		err := a.sessionError
-		health.LastError = &err
-	}
-	return health
 }
 
 func (a *Agent) setSessionError(err error) {
@@ -586,17 +544,4 @@ func sessionState(sessions []session.Session) (active, locked bool) {
 		return false, false
 	}
 	return active, allLocked
-}
-
-func prunePending(pending map[string]int64, day string) {
-	cutoffTime, err := time.Parse(dateLayout, day)
-	if err != nil {
-		return
-	}
-	cutoff := cutoffTime.AddDate(0, 0, -6).Format(dateLayout)
-	for entry := range pending {
-		if entry < cutoff {
-			delete(pending, entry)
-		}
-	}
 }

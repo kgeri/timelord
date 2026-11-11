@@ -147,17 +147,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := s.now().UTC()
-	serverDay := now.In(s.cfg.Location()).Format(dateLayout)
-	acknowledged, err := s.recordUsage(request.Hostname, user.Name, request, serverDay)
-	if err != nil {
-		var mismatch *dayMismatchError
-		if errors.As(err, &mismatch) {
-			http.Error(w, mismatch.Error(), http.StatusConflict)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	loc := s.cfg.Location()
+	serverDay := now.In(loc).Format(dateLayout)
+	usageDay := request.ObservedAt.In(loc).Format(dateLayout)
+	if usageDay > serverDay {
+		http.Error(w, "observed_at is later than server day "+serverDay, http.StatusConflict)
 		return
 	}
+	s.store.RecordUsage(request.Hostname, user.Name, usageDay, request.UsageSeconds)
 
 	s.markSeen(request.Hostname, now)
 	s.store.SetStatus(request.Hostname, user.Name, StatusRecord{
@@ -170,7 +167,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARN: save state: %v", err)
 	}
 
-	response := s.statusResponse(user, request.Hostname, acknowledged, now, serverDay)
+	response := s.statusResponse(user, request.Hostname, now, serverDay)
 	writeRevision(w, s.cfg.RevisionForDay(serverDay))
 	writeJSON(w, http.StatusOK, response)
 }
@@ -318,7 +315,7 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 	return response
 }
 
-func (s *Server) statusResponse(user *User, hostname string, acknowledged []string, now time.Time, serverDay string) StatusResponse {
+func (s *Server) statusResponse(user *User, hostname string, now time.Time, serverDay string) StatusResponse {
 	loc := s.cfg.Location()
 	policy := user.Policy.ForDay(policyDay(now, loc))
 	reported := s.store.Usage(hostname, user.Name, serverDay)
@@ -328,10 +325,6 @@ func (s *Server) statusResponse(user *User, hostname string, acknowledged []stri
 	var limit int64
 	if policy != nil {
 		limit = policy.DailyLimitSeconds
-	}
-	days := acknowledged
-	if days == nil {
-		days = []string{}
 	}
 	return StatusResponse{
 		ServerTime:           now,
@@ -345,24 +338,7 @@ func (s *Server) statusResponse(user *User, hostname string, acknowledged []stri
 		InsideWindow:         inside,
 		Allowed:              allowed,
 		DenyReason:           denyReason(policy, inside, limit, aggregate),
-		AcknowledgedDays:     days,
 	}
-}
-
-func (s *Server) recordUsage(hostname, user string, request StatusRequest, serverDay string) ([]string, error) {
-	acknowledged := make([]string, 0, len(request.Usage))
-	seen := make(map[string]bool, len(request.Usage))
-	for _, usage := range request.Usage {
-		if usage.Day > serverDay {
-			return nil, &dayMismatchError{serverDay: serverDay}
-		}
-		s.store.RecordUsage(hostname, user, usage.Day, usage.UsedSeconds)
-		if !seen[usage.Day] {
-			acknowledged = append(acknowledged, usage.Day)
-			seen[usage.Day] = true
-		}
-	}
-	return acknowledged, nil
 }
 
 func userFromPath(r *http.Request, prefix string) (string, bool) {
@@ -387,27 +363,11 @@ func validateStatusRequest(request *StatusRequest) error {
 	if len(request.Hostname) > 256 {
 		return fmt.Errorf("hostname is longer than 256 bytes")
 	}
-	switch request.Health.Status {
-	case "ok", "degraded", "starting":
-	default:
-		return fmt.Errorf("health.status %q is invalid", request.Health.Status)
-	}
-	if request.Health.LastError != nil && len(*request.Health.LastError) > 1024 {
-		return fmt.Errorf("health.last_error is longer than 1024 bytes")
-	}
 	if request.SessionCount < 0 {
 		return fmt.Errorf("session_count must not be negative")
 	}
-	if len(request.Usage) > 7 {
-		return fmt.Errorf("usage has more than 7 entries")
-	}
-	for i, usage := range request.Usage {
-		if _, err := time.Parse(dateLayout, usage.Day); err != nil {
-			return fmt.Errorf("usage[%d]: invalid day %q", i, usage.Day)
-		}
-		if usage.UsedSeconds < 0 {
-			return fmt.Errorf("usage[%d]: used_seconds must not be negative", i)
-		}
+	if request.UsageSeconds < 0 {
+		return fmt.Errorf("usage_seconds must not be negative")
 	}
 	if request.CollectedInMS < 0 {
 		return fmt.Errorf("collected_in_ms must not be negative")
@@ -429,14 +389,6 @@ func validateStatusRequest(request *StatusRequest) error {
 		}
 	}
 	return nil
-}
-
-type dayMismatchError struct {
-	serverDay string
-}
-
-func (e *dayMismatchError) Error() string {
-	return "usage day is later than server day " + e.serverDay
 }
 
 func remainingSeconds(policy *Policy, used int64) *int64 {

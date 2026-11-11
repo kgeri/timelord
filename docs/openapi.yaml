@@ -46,7 +46,7 @@ paths:
     put:
       summary: Report a user's status
       description: |
-        Reports one user's session state, usage counters, and process
+        Reports one user's session state, current usage counter, and process
         statistics. The response's `X-Schedule-Revision` header tells the
         Enforcer whether it needs to fetch schedules again.
       operationId: putStatus
@@ -229,29 +229,6 @@ components:
           day: '2026-11-10'
           used_seconds: 1500
           remaining_seconds: 2100
-    Health:
-      type: object
-      additionalProperties: false
-      required: [status]
-      properties:
-        status:
-          type: string
-          enum: [ok, degraded, starting]
-        last_error:
-          type: string
-          maxLength: 1024
-          nullable: true
-    UsageEntry:
-      type: object
-      additionalProperties: false
-      required: [day, used_seconds]
-      properties:
-        day:
-          type: string
-          format: date
-        used_seconds:
-          type: integer
-          minimum: 0
     ProcessStat:
       type: object
       additionalProperties: false
@@ -277,8 +254,8 @@ components:
       type: object
       additionalProperties: false
       required:
-        [observed_at, enforcer_version, hostname, health, active, locked,
-         session_count, usage, processes]
+        [observed_at, enforcer_version, hostname, active, locked,
+         session_count, usage_seconds, processes]
       properties:
         observed_at:
           type: string
@@ -288,8 +265,6 @@ components:
         hostname:
           type: string
           maxLength: 256
-        health:
-          $ref: '#/components/schemas/Health'
         active:
           type: boolean
         locked:
@@ -297,11 +272,10 @@ components:
         session_count:
           type: integer
           minimum: 0
-        usage:
-          type: array
-          maxItems: 7
-          items:
-            $ref: '#/components/schemas/UsageEntry'
+        usage_seconds:
+          type: integer
+          minimum: 0
+          description: Active seconds for the policy day inferred from `observed_at`.
         collected_in_ms:
           type: integer
           minimum: 0
@@ -313,15 +287,10 @@ components:
         observed_at: '2026-11-10T08:15:00Z'
         enforcer_version: 0.2.0
         hostname: dani
-        health:
-          status: ok
-          last_error: null
         active: true
         locked: false
         session_count: 1
-        usage:
-          - {day: '2026-11-10', used_seconds: 1234}
-          - {day: '2026-11-09', used_seconds: 3600}
+        usage_seconds: 1234
         collected_in_ms: 120
         processes:
           - user: dani
@@ -339,7 +308,7 @@ components:
       required:
         [server_time, server_day, user, current_day, reported_used_seconds,
          aggregate_used_seconds, daily_limit_seconds, remaining_seconds,
-         inside_window, allowed, deny_reason, acknowledged_days]
+         inside_window, allowed, deny_reason]
       properties:
         server_time:
           type: string
@@ -371,11 +340,6 @@ components:
           type: boolean
         deny_reason:
           $ref: '#/components/schemas/DenyReason'
-        acknowledged_days:
-          type: array
-          items:
-            type: string
-            format: date
       example:
         server_time: '2026-11-10T08:15:01Z'
         server_day: '2026-11-10'
@@ -388,7 +352,6 @@ components:
         inside_window: false
         allowed: false
         deny_reason: outside_window
-        acknowledged_days: ['2026-11-10', '2026-11-09']
     EnforcerList:
       type: object
       required: [server_time, server_day, enforcers]

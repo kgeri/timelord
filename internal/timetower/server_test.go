@@ -447,8 +447,12 @@ func statusBodyWithDay(t *testing.T, used int64, day string) string {
 	if err := json.Unmarshal([]byte(readTestdata(t, "status", "request.json")), &request); err != nil {
 		t.Fatalf("decode status request testdata: %v", err)
 	}
-	request.Usage[0].Day = day
-	request.Usage[0].UsedSeconds = used
+	observed, err := time.Parse(dateLayout, day)
+	if err != nil {
+		t.Fatalf("parse day %q: %v", day, err)
+	}
+	request.ObservedAt = observed.Add(10 * time.Hour)
+	request.UsageSeconds = used
 	data, err := json.MarshalIndent(request, "", "  ")
 	if err != nil {
 		t.Fatalf("encode status request: %v", err)

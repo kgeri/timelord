@@ -39,25 +39,12 @@ type StatusRequest struct {
 	ObservedAt      time.Time     `json:"observed_at"`
 	EnforcerVersion string        `json:"enforcer_version"`
 	Hostname        string        `json:"hostname"`
-	Health          Health        `json:"health"`
 	Active          bool          `json:"active"`
 	Locked          bool          `json:"locked"`
 	SessionCount    int           `json:"session_count"`
-	Usage           []UsageEntry  `json:"usage"`
+	UsageSeconds    int64         `json:"usage_seconds"`
 	CollectedInMS   int64         `json:"collected_in_ms,omitempty"`
 	Processes       []ProcessStat `json:"processes"`
-}
-
-// Health is the Enforcer's reported health.
-type Health struct {
-	Status    string  `json:"status"`
-	LastError *string `json:"last_error"`
-}
-
-// UsageEntry is an absolute usage counter for one policy day.
-type UsageEntry struct {
-	Day         string `json:"day"`
-	UsedSeconds int64  `json:"used_seconds"`
 }
 
 // ProcessStat is one aggregate process series.
@@ -83,7 +70,6 @@ type StatusResponse struct {
 	InsideWindow         bool      `json:"inside_window"`
 	Allowed              bool      `json:"allowed"`
 	DenyReason           *string   `json:"deny_reason"`
-	AcknowledgedDays     []string  `json:"acknowledged_days"`
 }
 
 // EnforcerList is the public GET /api/v1/enforcers response body.
