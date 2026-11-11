@@ -1,0 +1,10 @@
+{
+  "timezone": "UTC",
+  "status_interval_seconds": 60,
+  "offline_grace_seconds": 3600,
+  "users": [
+    {
+      "name": "nopolicy"
+    }
+  ]
+}
