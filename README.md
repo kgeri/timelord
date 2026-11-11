@@ -18,7 +18,7 @@ account name. Enforcers authenticate with the shared `TIMELORD_KEY`.
 cp deploy/timetower/config-default.json timetower.json
 # Edit the users and policies in timetower.json.
 go build -o timetower ./cmd/timetower
-TIMELORD_KEY=... ./timetower -config timetower.json -state timetower-state.json
+TIMELORD_KEY=... ./timetower -config timetower.json -state timetower-usage.csv
 ```
 
 Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with

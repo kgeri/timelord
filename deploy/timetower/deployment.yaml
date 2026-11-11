@@ -74,7 +74,7 @@ spec:
             - -config
             - /var/lib/timetower/config.json
             - -state
-            - /var/lib/timetower/state.json
+            - /var/lib/timetower/usage.csv
           readinessProbe:
             tcpSocket:
               port: http

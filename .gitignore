@@ -2,6 +2,7 @@
 /timetower
 /timetower.json
 /timetower-state.json
+/timetower-usage.csv
 /deploy/timetower/config.json
 /secrets.env
 /dist/

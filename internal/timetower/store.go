@@ -1,19 +1,26 @@
 package timetower
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
-// Store holds usage counters and the latest status per hostname and user.
+// Store holds usage counters and the latest in-memory status per hostname and
+// user. Only usage is persisted.
 type Store struct {
 	mu     sync.Mutex
+	saveMu sync.Mutex
 	path   string
 	usage  map[usageKey]int64
 	status map[statusKey]StatusRecord
@@ -21,10 +28,10 @@ type Store struct {
 
 // StatusRecord is the latest status received for one hostname and user.
 type StatusRecord struct {
-	Hostname   string        `json:"hostname"`
-	User       string        `json:"user"`
-	ReceivedAt time.Time     `json:"received_at"`
-	Request    StatusRequest `json:"request"`
+	Hostname   string
+	User       string
+	ReceivedAt time.Time
+	Request    StatusRequest
 }
 
 type usageKey struct {
@@ -38,21 +45,17 @@ type statusKey struct {
 	user     string
 }
 
-type persistedState struct {
-	Usage  []UsageRecord  `json:"usage"`
-	Status []StatusRecord `json:"status"`
-}
-
-// UsageRecord is one persisted usage counter.
+// UsageRecord is one row in the usage CSV.
 type UsageRecord struct {
-	Hostname    string `json:"hostname"`
-	User        string `json:"user"`
-	Day         string `json:"day"`
-	UsedSeconds int64  `json:"used_seconds"`
+	Date        string
+	User        string
+	Hostname    string
+	UsedSeconds int64
 }
 
-// NewStore creates a store and loads the state file at path when it exists.
-// An empty path keeps state in memory only.
+// NewStore creates a store and loads usage from the CSV at path. When the CSV
+// does not exist, usage is migrated once from a sibling state.json file if one
+// is present. An empty path keeps usage in memory only.
 func NewStore(path string) (*Store, error) {
 	store := &Store{
 		path:   path,
@@ -62,42 +65,93 @@ func NewStore(path string) (*Store, error) {
 	if path == "" {
 		return store, nil
 	}
-	if err := store.load(); err != nil {
+
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		legacyPath := filepath.Join(filepath.Dir(path), "state.json")
+		if err := store.loadLegacy(legacyPath); err != nil {
+			log.Printf("WARN: ignore legacy state %s: %v", legacyPath, err)
+		}
+		return store, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	if err := store.loadCSV(); err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) load() error {
-	data, err := os.ReadFile(s.path)
+func (s *Store) loadCSV() error {
+	file, err := os.Open(s.path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	rows, err := csv.NewReader(file).ReadAll()
+	if err != nil {
+		return err
+	}
+	for i, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		if i == 0 && strings.EqualFold(strings.TrimSpace(row[0]), "date") {
+			continue
+		}
+		if len(row) != 4 {
+			return fmt.Errorf("row %d: expected date,user,hostname,used_seconds", i+1)
+		}
+		date := strings.TrimSpace(row[0])
+		user := strings.TrimSpace(row[1])
+		hostname := strings.TrimSpace(row[2])
+		used, err := strconv.ParseInt(strings.TrimSpace(row[3]), 10, 64)
+		if err != nil || used < 0 || user == "" || hostname == "" {
+			return fmt.Errorf("row %d: invalid usage record", i+1)
+		}
+		if _, err := time.Parse(dateLayout, date); err != nil {
+			return fmt.Errorf("row %d: invalid date %q", i+1, date)
+		}
+		key := usageKey{hostname: hostname, user: user, day: date}
+		if used > s.usage[key] {
+			s.usage[key] = used
+		}
+	}
+	return nil
+}
+
+func (s *Store) loadLegacy(path string) error {
+	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if len(data) == 0 {
-		return nil
-	}
 
-	var state persistedState
-	if err := json.Unmarshal(data, &state); err != nil {
+	var legacy struct {
+		Usage []struct {
+			Hostname    string `json:"hostname"`
+			User        string `json:"user"`
+			Day         string `json:"day"`
+			UsedSeconds int64  `json:"used_seconds"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
 		return err
 	}
-	for _, record := range state.Usage {
+	for _, record := range legacy.Usage {
 		if record.Hostname == "" || record.User == "" || record.UsedSeconds < 0 {
+			continue
+		}
+		if _, err := time.Parse(dateLayout, record.Day); err != nil {
 			continue
 		}
 		key := usageKey{hostname: record.Hostname, user: record.User, day: record.Day}
 		if record.UsedSeconds > s.usage[key] {
 			s.usage[key] = record.UsedSeconds
 		}
-	}
-	for _, record := range state.Status {
-		if record.Hostname == "" || record.User == "" {
-			continue
-		}
-		s.status[statusKey{hostname: record.Hostname, user: record.User}] = record
 	}
 	return nil
 }
@@ -133,14 +187,15 @@ func (s *Store) AggregateUsage(user, day string) int64 {
 	return total
 }
 
-// SetStatus stores the latest status for a hostname and user.
+// SetStatus stores the latest in-memory status for a hostname and user.
 func (s *Store) SetStatus(hostname, user string, record StatusRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.status[statusKey{hostname: hostname, user: user}] = record
 }
 
-// StatusRecords returns all stored status records sorted by hostname and user.
+// StatusRecords returns all in-memory status records sorted by hostname and
+// user.
 func (s *Store) StatusRecords() []StatusRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,52 +223,38 @@ func (s *Store) PruneUsage(beforeDay string) {
 	}
 }
 
-// Save writes the current state to the configured state file. A store with an
-// empty path is memory-only and does nothing.
+// Save writes usage to the configured CSV file. Status records stay in memory.
+// A store with an empty path is memory-only and does nothing.
 func (s *Store) Save() error {
 	if s.path == "" {
 		return nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
-	state := persistedState{
-		Usage:  make([]UsageRecord, 0, len(s.usage)),
-		Status: make([]StatusRecord, 0, len(s.status)),
-	}
+	s.mu.Lock()
+	records := make([]UsageRecord, 0, len(s.usage))
 	for key, used := range s.usage {
-		state.Usage = append(state.Usage, UsageRecord{
-			Hostname:    key.hostname,
+		records = append(records, UsageRecord{
+			Date:        key.day,
 			User:        key.user,
-			Day:         key.day,
+			Hostname:    key.hostname,
 			UsedSeconds: used,
 		})
 	}
-	sort.Slice(state.Usage, func(i, j int) bool {
-		a, b := state.Usage[i], state.Usage[j]
-		if a.Hostname != b.Hostname {
-			return a.Hostname < b.Hostname
+	s.mu.Unlock()
+
+	sort.Slice(records, func(i, j int) bool {
+		a, b := records[i], records[j]
+		if a.Date != b.Date {
+			return a.Date < b.Date
 		}
 		if a.User != b.User {
 			return a.User < b.User
 		}
-		return a.Day < b.Day
+		return a.Hostname < b.Hostname
 	})
-	for _, record := range s.status {
-		state.Status = append(state.Status, record)
-	}
-	sort.Slice(state.Status, func(i, j int) bool {
-		if state.Status[i].Hostname != state.Status[j].Hostname {
-			return state.Status[i].Hostname < state.Status[j].Hostname
-		}
-		return state.Status[i].User < state.Status[j].User
-	})
-
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
 
 	dir := filepath.Dir(s.path)
 	if dir != "" && dir != "." {
@@ -221,14 +262,31 @@ func (s *Store) Save() error {
 			return err
 		}
 	}
-	temp, err := os.CreateTemp(dir, ".timetower-state-*")
+	temp, err := os.CreateTemp(dir, ".timetower-usage-*")
 	if err != nil {
 		return err
 	}
 	tempName := temp.Name()
 	defer os.Remove(tempName)
 
-	if _, err := temp.Write(data); err != nil {
+	writer := csv.NewWriter(temp)
+	if err := writer.Write([]string{"date", "user", "hostname", "used_seconds"}); err != nil {
+		temp.Close()
+		return err
+	}
+	for _, record := range records {
+		if err := writer.Write([]string{
+			record.Date,
+			record.User,
+			record.Hostname,
+			strconv.FormatInt(record.UsedSeconds, 10),
+		}); err != nil {
+			temp.Close()
+			return err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
 		temp.Close()
 		return err
 	}

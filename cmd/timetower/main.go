@@ -18,7 +18,7 @@ import (
 func main() {
 	listen := flag.String("listen", "0.0.0.0:8080", "address for the Timetower API")
 	configPath := flag.String("config", "timetower.json", "path to the Timetower configuration file")
-	statePath := flag.String("state", "timetower-state.json", "path to the persisted usage and status state")
+	statePath := flag.String("state", "timetower-usage.csv", "path to the persisted usage CSV")
 	flag.Parse()
 
 	config, err := timetower.LoadConfig(*configPath)

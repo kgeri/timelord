@@ -188,12 +188,13 @@ Timetower serves plain HTTP. The k3s ingress terminates TLS for
 
 ## Storage and retention
 
-Timetower reads its static configuration and stores daily usage and the latest
-status per hostname and user in its state file. The Enforcer stores no schedule
-or usage files.
+Timetower reads its static configuration and stores daily usage in a CSV file.
+Status, health, and process statistics stay in memory and are repopulated by the
+next status reports. The Enforcer stores no schedule or usage files.
 
-Daily usage is retained for 400 days. The latest status is retained per
-hostname and user.
+The CSV columns are `date,user,hostname,used_seconds`. Daily usage is retained
+for 400 days. When the CSV does not exist, Timetower migrates usage from a
+sibling `state.json` once; status data from that file is ignored.
 
 ## Deployment
 
@@ -211,8 +212,8 @@ The Deployment is pinned to `srvu` so its hostPath volumes are always on the
 same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override
 the SSH target; set `TIMETOWER_NODE` to override the Kubernetes node name.
 
-Usage and status state is stored alongside the configuration in
-`/data/hosted/timetower/state.json`. The deploy script reads the directory
+Usage is stored alongside the configuration in
+`/data/hosted/timetower/usage.csv`. The deploy script reads the directory
 owner's UID/GID and runs the container as that user, so the pod does not need to
 run as root.
 

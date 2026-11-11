@@ -16,4 +16,4 @@ COPY --from=build /out/timetower /usr/local/bin/timetower
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/timetower"]
-CMD ["-listen", "0.0.0.0:8080", "-config", "/var/lib/timetower/config.json", "-state", "/var/lib/timetower/state.json"]
+CMD ["-listen", "0.0.0.0:8080", "-config", "/var/lib/timetower/config.json", "-state", "/var/lib/timetower/usage.csv"]
