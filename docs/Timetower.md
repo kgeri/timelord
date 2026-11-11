@@ -61,8 +61,9 @@ The Timetower API uses one shared bearer key:
 Authorization: Bearer <TIMELORD_KEY>
 ```
 
-The schedule and status endpoints require the key. The `GET /api/v1/enforcers`
-listing is public for now; access to an admin UI will be guarded separately later.
+The schedule, status, and override endpoints require the key. The
+`GET /api/v1/enforcers` listing is public for now; access to an admin UI will
+be guarded separately later.
 
 The key is distributed through `secrets.env`:
 
@@ -96,6 +97,38 @@ existing policy-level `daily_limit_seconds` must be moved into each window's
 The schedule API keeps its existing `daily_limit_seconds` field. Timetower
 converts the configured minutes for the current policy day to seconds, and the
 schedule revision changes with the day so Enforcers refresh the current limit.
+
+### Current-day override
+
+An operator can override the current day's window and/or daily limit without
+editing the static configuration:
+
+```sh
+curl -X PUT https://timetower.ogreg.org/api/v1/override/dani \
+  -H "Authorization: Bearer $TIMELORD_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"start": "10:00", "end": "18:00", "limit_minutes": 15}'
+```
+
+All three fields are optional. Omitted fields keep the configured value or an
+existing override. When the day has a configured window, setting `start` or
+`end` to the configured boundary removes that field's override, and setting
+`limit_minutes` to the configured value removes the limit override. When
+nothing remains, the whole override is cleared; there is no separate reset
+call. `limit_minutes: 0` means no duration limit. A low limit applies
+immediately, so a user already above it is locked out on the next status
+check.
+
+The configured start and end for the day are its earliest start and latest end.
+Overriding either boundary replaces the day's windows with one interval using
+the effective start and end. A limit-only override keeps the configured
+windows. A day with no configured window defaults to 00:00-23:59, so setting
+`start` or `end` creates a window and allows that day.
+
+Overrides are kept in memory: they are cleared when the policy day changes or
+Timetower restarts. Changing the effective policy changes
+`X-Schedule-Revision`, so Enforcers fetch the updated schedule. A successful
+response returns the effective `windows` for the day and `limit_minutes`.
 
 ### Usage
 
@@ -184,11 +217,13 @@ charging suspend or stall time.
 |--------|------|------|---------|
 | `GET` | `/api/v1/schedule/{user}` | bearer key | Fetch one user's policy, usage, and remaining time. |
 | `PUT` | `/api/v1/status/{user}` | bearer key | Report usage, session state, and process statistics. |
+| `PUT` | `/api/v1/override/{user}` | bearer key | Override the current day's window and/or limit. |
 | `GET` | `/api/v1/enforcers` | public | List reporting hostnames, online state, last contact, and remaining time. |
 
-Both schedule and status success responses carry `X-Schedule-Revision`. The
-Enforcer remembers the value from the schedule and fetches schedules again when
-a status response returns a different value.
+Both schedule and status success responses carry `X-Schedule-Revision`.
+Override responses also carry it. The Enforcer remembers the value from the
+schedule and fetches schedules again when a status response returns a different
+value.
 
 Timetower serves plain HTTP. The k3s ingress terminates TLS for
 `timetower.ogreg.org`.
@@ -196,8 +231,9 @@ Timetower serves plain HTTP. The k3s ingress terminates TLS for
 ## Storage and retention
 
 Timetower reads its static configuration and stores daily usage in a CSV file.
-Status and process statistics stay in memory and are repopulated by the next
-status reports. The Enforcer stores no schedule or usage files.
+Status, process statistics, and current-day overrides stay in memory.
+Status is repopulated by the next status reports, and overrides must be set
+again after a restart. The Enforcer stores no schedule or usage files.
 
 The CSV columns are `date,user,hostname,used_seconds`. Daily usage is retained
 for 400 days.

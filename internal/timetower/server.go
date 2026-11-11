@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"timelord/internal/policy"
 )
 
 const maxStatusBytes = 8 << 20
@@ -46,15 +49,19 @@ func NewServer(cfg *Config, store *Store, key string) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/schedule/", s.handleSchedule)
 	mux.HandleFunc("/api/v1/status/", s.handleStatus)
+	mux.HandleFunc("/api/v1/override/", s.handleOverride)
 	mux.HandleFunc("/api/v1/enforcers", s.handleEnforcers)
 	s.mux = mux
 	return s
 }
 
-// ServeHTTP implements http.Handler. The schedule and status endpoints require
-// the shared bearer key; the Enforcer listing is public for now.
+// ServeHTTP implements http.Handler. The schedule, status, and override
+// endpoints require the shared bearer key; the Enforcer listing is public for
+// now.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/v1/schedule/") || strings.HasPrefix(r.URL.Path, "/api/v1/status/") {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/schedule/") ||
+		strings.HasPrefix(r.URL.Path, "/api/v1/status/") ||
+		strings.HasPrefix(r.URL.Path, "/api/v1/override/") {
 		if !s.authorized(r) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -97,7 +104,7 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 	now := s.now().UTC()
 	loc := s.cfg.Location()
 	day := now.In(loc).Format(dateLayout)
-	policy := user.Policy.ForDay(policyDay(now, loc))
+	policy := s.policyForDay(user, policyDay(now, loc), day)
 	used := s.store.AggregateUsage(user.Name, day)
 	response := Schedule{
 		SchemaVersion:         SchemaVersion,
@@ -114,8 +121,159 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeRevision(w, s.cfg.RevisionForDay(day))
+	writeRevision(w, s.revision(day))
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", http.MethodPut)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userName, ok := userFromPath(r, "/api/v1/override/")
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	user, ok := s.cfg.UserByName(userName)
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if user.Policy == nil {
+		http.Error(w, "user has no policy", http.StatusUnprocessableEntity)
+		return
+	}
+
+	var request OverrideRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	if err := validateOverride(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	now := s.now().UTC()
+	loc := s.cfg.Location()
+	day := now.In(loc).Format(dateLayout)
+	weekday := policyDay(now, loc)
+	configured, hasWindow := user.Policy.DayWindow(weekday)
+	window := configured
+	if !hasWindow {
+		window = policy.Window{Day: weekday, Start: 0, End: policy.MinutesPerDay - 1}
+	}
+
+	next, _ := s.store.Override(user.Name, day)
+	if request.Start != nil {
+		if hasWindow && *request.Start == configured.Start {
+			next.Start = nil
+		} else {
+			next.Start = request.Start
+		}
+	}
+	if request.End != nil {
+		if hasWindow && *request.End == configured.End {
+			next.End = nil
+		} else {
+			next.End = request.End
+		}
+	}
+	if request.LimitMinutes != nil {
+		if *request.LimitMinutes == defaultLimitMinutes(user, weekday) {
+			next.LimitMinutes = nil
+		} else {
+			next.LimitMinutes = request.LimitMinutes
+		}
+	}
+	if !hasWindow && (request.Start != nil || request.End != nil || next.Start != nil || next.End != nil) {
+		if next.Start == nil {
+			start := window.Start
+			next.Start = &start
+		}
+		if next.End == nil {
+			end := window.End
+			next.End = &end
+		}
+	}
+
+	if next.Start != nil || next.End != nil {
+		effective := window
+		if next.Start != nil {
+			effective.Start = *next.Start
+		}
+		if next.End != nil {
+			effective.End = *next.End
+		}
+		if effective.Start >= effective.End {
+			http.Error(w, "start must be earlier than end", http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
+	if next.empty() {
+		s.store.ClearOverride(user.Name, day)
+	} else {
+		s.store.SetOverride(user.Name, day, next)
+	}
+
+	policy := s.policyForDay(user, weekday, day)
+	var limit int64
+	if policy != nil {
+		limit = policy.DailyLimitSeconds / 60
+	}
+	writeRevision(w, s.revision(day))
+	writeJSON(w, http.StatusOK, Override{
+		User:         user.Name,
+		Day:          day,
+		Windows:      dayWindows(policy, weekday),
+		LimitMinutes: limit,
+	})
+}
+
+func defaultLimitMinutes(user *User, day policy.Day) int64 {
+	p := user.Policy.ForDay(day)
+	if p == nil {
+		return 0
+	}
+	return p.DailyLimitSeconds / 60
+}
+
+func validateOverride(request *OverrideRequest) error {
+	if request.Start == nil && request.End == nil && request.LimitMinutes == nil {
+		return fmt.Errorf("at least one of start, end, or limit_minutes is required")
+	}
+	if request.Start != nil && !request.Start.Valid() {
+		return fmt.Errorf("start is out of range")
+	}
+	if request.End != nil && !request.End.Valid() {
+		return fmt.Errorf("end is out of range")
+	}
+	if request.LimitMinutes != nil {
+		if *request.LimitMinutes < 0 {
+			return fmt.Errorf("limit_minutes must not be negative")
+		}
+		if *request.LimitMinutes > maxLimitMinutes {
+			return fmt.Errorf("limit_minutes is too large")
+		}
+	}
+	return nil
+}
+
+func dayWindows(p *Policy, day policy.Day) []policy.Window {
+	if p == nil {
+		return []policy.Window{}
+	}
+	windows := make([]policy.Window, 0, len(p.Windows))
+	for _, window := range p.Windows {
+		if window.Day == day {
+			windows = append(windows, window)
+		}
+	}
+	return windows
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +326,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := s.statusResponse(user, request.Hostname, now, serverDay)
-	writeRevision(w, s.cfg.RevisionForDay(serverDay))
+	writeRevision(w, s.revision(serverDay))
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -292,7 +450,7 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 			if !ok {
 				continue
 			}
-			policy := user.Policy.ForDay(today)
+			policy := s.policyForDay(user, today, day)
 			used := s.store.AggregateUsage(user.Name, day)
 			inside := policy.InsideWindow(now, loc)
 			allowed := policy.Allowed(now, used, loc)
@@ -317,7 +475,7 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 
 func (s *Server) statusResponse(user *User, hostname string, now time.Time, serverDay string) StatusResponse {
 	loc := s.cfg.Location()
-	policy := user.Policy.ForDay(policyDay(now, loc))
+	policy := s.policyForDay(user, policyDay(now, loc), serverDay)
 	reported := s.store.Usage(hostname, user.Name, serverDay)
 	aggregate := s.store.AggregateUsage(user.Name, serverDay)
 	inside := policy.InsideWindow(now, loc)
@@ -339,6 +497,41 @@ func (s *Server) statusResponse(user *User, hostname string, now time.Time, serv
 		Allowed:              allowed,
 		DenyReason:           denyReason(policy, inside, limit, aggregate),
 	}
+}
+
+// policyForDay returns a user's policy for one weekday with the current-day
+// override applied, if one is set for date.
+func (s *Server) policyForDay(user *User, day policy.Day, date string) *Policy {
+	p := user.Policy.ForDay(day)
+	if p == nil {
+		return nil
+	}
+	override, ok := s.store.Override(user.Name, date)
+	if !ok {
+		return p
+	}
+	if override.LimitMinutes != nil {
+		p.DailyLimitSeconds = *override.LimitMinutes * 60
+	}
+	if override.Start != nil || override.End != nil {
+		window := user.Policy.DayWindowOrDefault(day)
+		if override.Start != nil {
+			window.Start = *override.Start
+		}
+		if override.End != nil {
+			window.End = *override.End
+		}
+		p.Windows = []policy.Window{window}
+	}
+	return p
+}
+
+// revision combines the static schedule revision, the day, and the day's
+// override state. Enforcers refetch schedules whenever it changes.
+func (s *Server) revision(day string) int64 {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "%d:%d", s.cfg.RevisionForDay(day), s.store.OverridesRevision(day))
+	return int64(h.Sum64() >> 1)
 }
 
 func userFromPath(r *http.Request, prefix string) (string, bool) {

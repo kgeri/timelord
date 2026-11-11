@@ -90,6 +90,59 @@ paths:
         '503':
           description: Service unavailable.
 
+  /api/v1/override/{user}:
+    put:
+      summary: Override the current day's window and/or limit
+      description: |
+        Overrides any of the current policy day's start, end, or daily limit.
+        All request fields are optional; omitted fields keep the configured
+        value or an existing override. For a day with a configured window,
+        setting start or end to the configured boundary removes that field's
+        override, and setting limit_minutes to the configured limit removes the
+        limit override. Clearing every field removes the override entirely.
+        `limit_minutes: 0` means no duration limit.
+        A start or end override collapses the day's configured windows into one
+        interval using the effective boundaries. A day with no configured
+        window defaults to 00:00-23:59, so a start or end override creates a
+        window and allows that day. Overrides are in-memory and are cleared
+        when the policy day changes or Timetower restarts.
+      operationId: putOverride
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/User'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverrideRequest'
+      responses:
+        '200':
+          description: Override applied.
+          headers:
+            X-Schedule-Revision:
+              description: Current schedule revision.
+              schema:
+                type: integer
+                minimum: 0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Override'
+        '400':
+          description: Malformed request.
+        '401':
+          description: Missing or invalid bearer key.
+        '404':
+          description: The user is not configured.
+        '405':
+          description: Method not allowed.
+        '422':
+          description: Validation failed, or the user has no policy.
+        '500':
+          description: Internal server error.
+
   /api/v1/enforcers:
     get:
       summary: List reporting hosts
@@ -303,6 +356,56 @@ components:
       type: string
       nullable: true
       enum: [no_policy, disabled, outside_window, daily_limit_reached]
+    OverrideRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        start:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '10:00'
+          description: New start for the current day's window.
+        end:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '18:00'
+          description: New end for the current day's window.
+        limit_minutes:
+          type: integer
+          minimum: 0
+          description: |
+            Effective daily limit in minutes for the current policy day. `0`
+            means no duration limit. The configured default removes this
+            override field.
+      example:
+        start: '10:00'
+        end: '18:00'
+        limit_minutes: 15
+    Override:
+      type: object
+      required: [user, day, windows, limit_minutes]
+      properties:
+        user:
+          type: string
+        day:
+          type: string
+          format: date
+          description: Current policy day the override applies to.
+        windows:
+          type: array
+          description: Effective windows for the current policy day.
+          items:
+            $ref: '#/components/schemas/Window'
+        limit_minutes:
+          type: integer
+          minimum: 0
+          description: Effective limit in minutes for the current policy day.
+      example:
+        user: dani
+        day: '2026-11-10'
+        windows:
+          - {day: mon, start: '10:00', end: '18:00'}
+        limit_minutes: 15
     StatusResponse:
       type: object
       required:

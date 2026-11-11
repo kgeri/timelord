@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,16 +13,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"timelord/internal/policy"
 )
 
 // Store holds usage counters and the latest in-memory status per hostname and
 // user. Only usage is persisted.
 type Store struct {
-	mu     sync.Mutex
-	saveMu sync.Mutex
-	path   string
-	usage  map[usageKey]int64
-	status map[statusKey]StatusRecord
+	mu       sync.Mutex
+	saveMu   sync.Mutex
+	path     string
+	usage    map[usageKey]int64
+	status   map[statusKey]StatusRecord
+	override map[overrideKey]DayOverride
 }
 
 // StatusRecord is the latest status received for one hostname and user.
@@ -43,6 +47,23 @@ type statusKey struct {
 	user     string
 }
 
+type overrideKey struct {
+	user string
+	day  string
+}
+
+// DayOverride replaces any of one day's window boundaries or daily limit.
+// A nil field keeps the configured value.
+type DayOverride struct {
+	Start        *policy.Clock `json:"start,omitempty"`
+	End          *policy.Clock `json:"end,omitempty"`
+	LimitMinutes *int64        `json:"limit_minutes,omitempty"`
+}
+
+func (o DayOverride) empty() bool {
+	return o.Start == nil && o.End == nil && o.LimitMinutes == nil
+}
+
 // UsageRecord is one row in the usage CSV.
 type UsageRecord struct {
 	Date        string
@@ -55,9 +76,10 @@ type UsageRecord struct {
 // starts with empty usage. An empty path keeps usage in memory only.
 func NewStore(path string) (*Store, error) {
 	store := &Store{
-		path:   path,
-		usage:  make(map[usageKey]int64),
-		status: make(map[statusKey]StatusRecord),
+		path:     path,
+		usage:    make(map[usageKey]int64),
+		status:   make(map[statusKey]StatusRecord),
+		override: make(map[overrideKey]DayOverride),
 	}
 	if path == "" {
 		return store, nil
@@ -143,6 +165,66 @@ func (s *Store) AggregateUsage(user, day string) int64 {
 		}
 	}
 	return total
+}
+
+// SetOverride stores the current-day override for one user and day.
+// Overrides are in-memory and start empty after a restart.
+func (s *Store) SetOverride(user, day string, override DayOverride) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key := range s.override {
+		if key.user == user && key.day < day {
+			delete(s.override, key)
+		}
+	}
+	s.override[overrideKey{user: user, day: day}] = override
+}
+
+// ClearOverride removes the current-day override for one user and day.
+func (s *Store) ClearOverride(user, day string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.override, overrideKey{user: user, day: day})
+}
+
+// Override returns the current-day override for one user and day, if set.
+func (s *Store) Override(user, day string) (DayOverride, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	override, ok := s.override[overrideKey{user: user, day: day}]
+	return override, ok
+}
+
+// OverridesRevision returns a stable digest of one day's overrides. It
+// changes whenever an override for the day is set or cleared.
+func (s *Store) OverridesRevision(day string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	users := make([]string, 0, len(s.override))
+	for key := range s.override {
+		if key.day == day {
+			users = append(users, key.user)
+		}
+	}
+	sort.Strings(users)
+
+	h := fnv.New64a()
+	for _, user := range users {
+		override := s.override[overrideKey{user: user, day: day}]
+		start, end, limit := "-", "-", "-"
+		if override.Start != nil {
+			start = override.Start.String()
+		}
+		if override.End != nil {
+			end = override.End.String()
+		}
+		if override.LimitMinutes != nil {
+			limit = strconv.FormatInt(*override.LimitMinutes, 10)
+		}
+		fmt.Fprintf(h, "%s=%s,%s,%s;", user, start, end, limit)
+	}
+	return int64(h.Sum64() >> 1)
 }
 
 // SetStatus stores the latest in-memory status for a hostname and user.

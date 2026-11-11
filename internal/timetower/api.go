@@ -57,6 +57,24 @@ type ProcessStat struct {
 	CPUSecondsTotal float64 `json:"cpu_seconds_total"`
 }
 
+// OverrideRequest is the PUT /api/v1/override/{user} request body. Every
+// field is optional; omitted fields keep the configured value or an existing
+// override. For a day with a configured window, setting a boundary to its
+// configured value removes that boundary override.
+type OverrideRequest struct {
+	Start        *policy.Clock `json:"start"`
+	End          *policy.Clock `json:"end"`
+	LimitMinutes *int64        `json:"limit_minutes"`
+}
+
+// Override is the effective current-day policy after applying an override.
+type Override struct {
+	User         string          `json:"user"`
+	Day          string          `json:"day"`
+	Windows      []policy.Window `json:"windows"`
+	LimitMinutes int64           `json:"limit_minutes"`
+}
+
 // StatusResponse is the PUT /api/v1/status/{user} response body.
 type StatusResponse struct {
 	ServerTime           time.Time `json:"server_time"`

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"timelord/internal/policy"
 )
 
 func TestStoreUsageIsMonotonicAndAggregates(t *testing.T) {
@@ -26,6 +28,55 @@ func TestStoreUsageIsMonotonicAndAggregates(t *testing.T) {
 	}
 	if got := store.AggregateUsage("dani", "2024-06-04"); got != 0 {
 		t.Errorf("AggregateUsage(other day) = %d, want 0", got)
+	}
+}
+
+func TestStoreOverride(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	if _, ok := store.Override("dani", "2024-06-03"); ok {
+		t.Fatal("Override() = set, want unset")
+	}
+
+	start := policy.Clock(10 * 60)
+	end := policy.Clock(18 * 60)
+	limit := int64(15)
+	store.SetOverride("dani", "2024-06-02", DayOverride{Start: &start})
+	store.SetOverride("dani", "2024-06-03", DayOverride{
+		Start:        &start,
+		End:          &end,
+		LimitMinutes: &limit,
+	})
+	override, ok := store.Override("dani", "2024-06-03")
+	if !ok {
+		t.Fatal("Override() = unset, want set")
+	}
+	if override.Start == nil || *override.Start != start ||
+		override.End == nil || *override.End != end ||
+		override.LimitMinutes == nil || *override.LimitMinutes != limit {
+		t.Errorf("Override() = %+v, want start 10:00, end 18:00, limit 15", override)
+	}
+	if _, ok := store.Override("dani", "2024-06-02"); ok {
+		t.Error("older override was not pruned on set")
+	}
+
+	before := store.OverridesRevision("2024-06-03")
+	limit = 30
+	store.SetOverride("dani", "2024-06-03", DayOverride{
+		Start:        &start,
+		End:          &end,
+		LimitMinutes: &limit,
+	})
+	if after := store.OverridesRevision("2024-06-03"); after == before {
+		t.Error("OverridesRevision() did not change with the override")
+	}
+
+	store.ClearOverride("dani", "2024-06-03")
+	if _, ok := store.Override("dani", "2024-06-03"); ok {
+		t.Error("Override() = set after clear, want unset")
 	}
 }
 

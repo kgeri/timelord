@@ -1,0 +1,8 @@
+{
+  "user": "dani",
+  "day": "2024-06-04",
+  "windows": [
+    {"day": "tue", "start": "14:00", "end": "23:59"}
+  ],
+  "limit_minutes": 0
+}

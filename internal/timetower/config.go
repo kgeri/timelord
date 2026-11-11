@@ -18,6 +18,9 @@ const (
 	SchemaVersion = 1
 
 	dateLayout = "2006-01-02"
+
+	// maxLimitMinutes keeps a minute limit convertible to int64 seconds.
+	maxLimitMinutes = (1<<63 - 1) / 60
 )
 
 // Config is Timetower's static configuration.
@@ -169,7 +172,7 @@ func (p *ConfigPolicy) Validate() error {
 		if window.LimitMinutes < 0 {
 			return fmt.Errorf("windows[%d]: limit_minutes must not be negative", i)
 		}
-		if window.LimitMinutes > (1<<63-1)/60 {
+		if window.LimitMinutes > maxLimitMinutes {
 			return fmt.Errorf("windows[%d]: limit_minutes is too large", i)
 		}
 		if previous, ok := limits[window.Day]; ok && previous != window.LimitMinutes {
@@ -199,6 +202,43 @@ func (p *ConfigPolicy) ForDay(day policy.Day) *Policy {
 		DailyLimitSeconds: minutes * 60,
 		Windows:           windows,
 	}
+}
+
+// DayWindow returns the envelope of the configured windows for one weekday.
+// The start is the earliest start and the end is the latest end that day.
+func (p *ConfigPolicy) DayWindow(day policy.Day) (policy.Window, bool) {
+	if p == nil {
+		return policy.Window{}, false
+	}
+	var window policy.Window
+	found := false
+	for _, candidate := range p.Windows {
+		if candidate.Day != day {
+			continue
+		}
+		if !found {
+			window = candidate.Window
+			found = true
+			continue
+		}
+		if candidate.Start < window.Start {
+			window.Start = candidate.Start
+		}
+		if candidate.End > window.End {
+			window.End = candidate.End
+		}
+	}
+	return window, found
+}
+
+// DayWindowOrDefault returns the envelope of the configured windows for one
+// weekday. A weekday without windows defaults to 00:00-23:59 so an override
+// can create a window.
+func (p *ConfigPolicy) DayWindowOrDefault(day policy.Day) policy.Window {
+	if window, ok := p.DayWindow(day); ok {
+		return window
+	}
+	return policy.Window{Day: day, Start: 0, End: policy.MinutesPerDay - 1}
 }
 
 // InsideWindow reports whether now is inside one of the policy's windows.
