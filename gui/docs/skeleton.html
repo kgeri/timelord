@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timetower Admin Console</title>
+    <style>
+        /* --- CSS RESET & BASE STYLES --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: #09090b;
+            color: #f4f4f5;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 420px;
+            background-color: #09090b;
+            border-left: 1px solid #27272a;
+            border-right: 1px solid #27272a;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            padding-bottom: 70px;
+        }
+
+        /* --- HEADER --- */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: rgba(9, 9, 11, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid #27272a;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #818cf8;
+            font-weight: bold;
+        }
+
+        .brand-title {
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .revision-tag {
+            font-size: 10px;
+            font-family: monospace;
+            background: rgba(99, 102, 241, 0.1);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .brand-subtitle {
+            font-size: 11px;
+            color: #a1a1aa;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .dot-live {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: #10b981;
+        }
+
+        .icon-btn {
+            background: #18181b;
+            border: 1px solid #27272a;
+            color: #d4d4d8;
+            border-radius: 8px;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .icon-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* --- USER CAROUSEL --- */
+        .user-carousel-container {
+            padding: 12px 16px 8px 16px;
+            border-bottom: 1px solid #18181b;
+            background: rgba(9, 9, 11, 0.5);
+        }
+
+        .section-label {
+            font-size: 10px;
+            font-family: monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #71717a;
+            margin-bottom: 8px;
+        }
+
+        .user-carousel {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .user-carousel::-webkit-scrollbar {
+            display: none;
+        }
+
+        .user-pill {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            cursor: pointer;
+            color: #d4d4d8;
+            transition: all 0.15s ease;
+        }
+
+        .user-pill.active {
+            background: #4f46e5;
+            border-color: #818cf8;
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+        }
+
+        .avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #27272a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .user-pill.active .avatar {
+            background: #3730a3;
+            color: #fff;
+        }
+
+        .pill-info {
+            text-align: left;
+        }
+
+        .pill-name {
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.1;
+        }
+
+        .pill-sub {
+            font-size: 9px;
+            opacity: 0.75;
+        }
+
+        /* --- MAIN CONTENT & CARDS --- */
+        main {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 16px;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .user-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .username-header {
+            font-size: 20px;
+            font-weight: 700;
+            text-transform: capitalize;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            width: fit-content;
+        }
+
+        .status-badge.allowed {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+
+        .status-badge.locked {
+            background: rgba(244, 63, 94, 0.1);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: #fb7185;
+        }
+
+        .status-badge.window {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+
+        /* RADIAL TIMER */
+        .radial-container {
+            display: flex;
+            justify-content: center;
+            margin: 12px 0;
+            position: relative;
+        }
+
+        .radial-svg {
+            width: 160px;
+            height: 160px;
+            transform: rotate(-90deg);
+        }
+
+        .radial-bg {
+            stroke: #27272a;
+            stroke-width: 3.5;
+            fill: none;
+        }
+
+        .radial-progress {
+            stroke: #6366f1;
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            fill: none;
+            transition: stroke-dasharray 0.4s ease;
+        }
+
+        .radial-progress.danger {
+            stroke: #f43f5e;
+        }
+
+        .radial-center-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timer-display {
+            font-size: 24px;
+            font-weight: 700;
+            font-family: monospace;
+        }
+
+        .timer-label {
+            font-size: 10px;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            font-family: monospace;
+        }
+
+        .timer-pct {
+            font-size: 11px;
+            color: #818cf8;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        /* METRICS GRID */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #27272a;
+        }
+
+        .metric-box {
+            background: #09090b;
+            border: 1px solid #27272a;
+            padding: 10px;
+            border-radius: 12px;
+        }
+
+        .metric-val {
+            font-size: 14px;
+            font-weight: 700;
+            font-family: monospace;
+            margin-top: 2px;
+        }
+
+        /* QUICK ACTIONS */
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn-quick {
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            color: #a5b4fc;
+            padding: 10px 4px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .btn-quick:active {
+            transform: scale(0.95);
+            background: rgba(99, 102, 241, 0.25);
+        }
+
+        .btn-lock {
+            width: 100%;
+            margin-top: 10px;
+            background: rgba(244, 63, 94, 0.15);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: #fda4af;
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-lock:active {
+            transform: scale(0.98);
+            background: rgba(244, 63, 94, 0.25);
+        }
+
+        /* FORM STYLES */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        label {
+            font-size: 11px;
+            font-family: monospace;
+            color: #a1a1aa;
+        }
+
+        input {
+            background: #09090b;
+            border: 1px solid #27272a;
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: monospace;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #6366f1;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: #4f46e5;
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+
+        /* CHART / HISTORICAL */
+        .bar-chart-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            height: 120px;
+            padding-top: 16px;
+            gap: 8px;
+        }
+
+        .bar-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            height: 100%;
+            justify-content: flex-end;
+        }
+
+        .bar-fill {
+            width: 100%;
+            max-width: 24px;
+            background: #4f46e5;
+            border-radius: 4px 4px 0 0;
+            min-height: 4px;
+            transition: height 0.3s ease;
+        }
+
+        .bar-label {
+            font-size: 10px;
+            color: #71717a;
+        }
+
+        /* BOTTOM NAV */
+        nav {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            max-width: 420px;
+            background: rgba(9, 9, 11, 0.9);
+            backdrop-filter: blur(12px);
+            border-top: 1px solid #27272a;
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 0;
+            z-index: 30;
+        }
+
+        .nav-btn {
+            background: none;
+            border: none;
+            color: #71717a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 4px 12px;
+            border-radius: 8px;
+        }
+
+        .nav-btn.active {
+            color: #818cf8;
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app-container">
+        <!-- HEADER -->
+        <header>
+            <div class="brand">
+                <div class="brand-icon">⏳</div>
+                <div>
+                    <div class="brand-title">
+                        Timetower
+                        <span class="revision-tag" id="rev-tag">r142</span>
+                    </div>
+                    <div class="brand-subtitle">
+                        <span class="dot-live"></span>
+                        Enforcer Active
+                    </div>
+                </div>
+            </div>
+            <button class="icon-btn" onclick="triggerRefresh()" title="Sync API">↻</button>
+        </header>
+
+        <!-- USER SELECTOR -->
+        <div class="user-carousel-container">
+            <div class="section-label">Select Monitored User</div>
+            <div class="user-carousel" id="user-carousel">
+                <!-- JS Inject Pills -->
+            </div>
+        </div>
+
+        <!-- MAIN VIEWS -->
+        <main>
+            <!-- TAB 1: STATUS & QUICK ACTIONS -->
+            <div id="tab-status" class="tab-content">
+                <!-- Main Usage Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="user-title-group">
+                            <div class="username-header" id="user-display-name">dani</div>
+                            <div id="status-badge" class="status-badge allowed">✓ Access Allowed</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="section-label" style="margin:0;">Daily Limit</div>
+                            <div style="font-weight: 700; font-family: monospace; font-size: 13px;" id="limit-display">2h 00m</div>
+                        </div>
+                    </div>
+
+                    <!-- Radial Progress Ring -->
+                    <div class="radial-container">
+                        <svg class="radial-svg" viewBox="0 0 36 36">
+                            <path class="radial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path id="radial-progress-bar" class="radial-progress" stroke-dasharray="62, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="radial-center-text">
+                            <div class="timer-display" id="used-display">1h 15m</div>
+                            <div class="timer-label">Used Today</div>
+                            <div class="timer-pct" id="pct-display">62% Used</div>
+                        </div>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <div class="section-label" style="margin:0;">Remaining</div>
+                            <div class="metric-val" style="color: #34d399;" id="remaining-display">45m</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="section-label" style="margin:0;">Active Window</div>
+                            <div class="metric-val" id="window-display">08:00 - 19:00</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Overrides Toolbar -->
+                <div class="card" style="margin-top: 14px;">
+                    <div class="section-label">Quick Time Add (1-Tap Override)</div>
+                    <div class="action-grid">
+                        <button class="btn-quick" onclick="addMinutes(15)">+15m</button>
+                        <button class="btn-quick" onclick="addMinutes(30)">+30m</button>
+                        <button class="btn-quick" onclick="addMinutes(45)">+45m</button>
+                        <button class="btn-quick" onclick="addMinutes(60)">+60m</button>
+                    </div>
+                    <button class="btn-lock" onclick="lockNow()">
+                        🔒 LOCK IMMEDIATELY (Time's Up)
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 2: OVERRIDE SETTINGS -->
+            <div id="tab-override" class="tab-content hidden">
+                <div class="card">
+                    <div class="section-label" style="margin-bottom: 12px;">Policy Window & Limit Override</div>
+                    <form onsubmit="applyCustomOverride(event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>WINDOW START</label>
+                                <input type="time" id="override-start" value="08:00">
+                            </div>
+                            <div class="form-group">
+                                <label>WINDOW END</label>
+                                <input type="time" id="override-end" value="20:00">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>DAILY LIMIT (MINUTES)</label>
+                            <input type="number" id="override-limit" value="120" min="0" max="1440">
+                        </div>
+                        <button type="submit" class="btn-submit">Apply PUT Override</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- TAB 3: STATS -->
+            <div id="tab-stats" class="tab-content hidden">
+                <div class="card">
+                    <div class="section-label">Past 7 Days Usage (Minutes)</div>
+                    <div class="bar-chart-container" id="bar-chart">
+                        <!-- JS Inject Chart Bars -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: NODES -->
+            <div id="tab-nodes" class="tab-content hidden">
+                <div class="section-label">Enforcer Nodes (/api/v1/enforcers)</div>
+                <div id="nodes-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <!-- JS Inject Nodes -->
+                </div>
+            </div>
+        </main>
+
+        <!-- NAVIGATION BAR -->
+        <nav>
+            <button class="nav-btn active" id="nav-status" onclick="switchTab('status')">
+                <span>⏱</span>
+                <span>Status</span>
+            </button>
+            <button class="nav-btn" id="nav-override" onclick="switchTab('override')">
+                <span>⚙</span>
+                <span>Override</span>
+            </button>
+            <button class="nav-btn" id="nav-stats" onclick="switchTab('stats')">
+                <span>📊</span>
+                <span>Stats</span>
+            </button>
+            <button class="nav-btn" id="nav-nodes" onclick="switchTab('nodes')">
+                <span>🖥</span>
+                <span>Nodes</span>
+            </button>
+        </nav>
+    </div>
+
+    <script>
+        // --- STATE MANAGEMENT ---
+        let revision = 142;
+        let selectedUserKey = 'dani';
+
+        let users = [
+            {
+                username: 'dani',
+                hostname: 'dani-desktop',
+                usage_seconds: 4500,
+                daily_limit_seconds: 7200,
+                remaining_seconds: 2700,
+                allowed: true,
+                locked: false,
+                windows: { start: '08:00', end: '19:00' },
+                history: [65, 110, 45, 120, 90, 140, 75]
+            },
+            {
+                username: 'alex',
+                hostname: 'alex-laptop',
+                usage_seconds: 5400,
+                daily_limit_seconds: 5400,
+                remaining_seconds: 0,
+                allowed: false,
+                locked: true,
+                windows: { start: '09:00', end: '18:00' },
+                history: [90, 85, 90, 90, 120, 180, 160]
+            },
+            {
+                username: 'sam',
+                hostname: 'sam-rig',
+                usage_seconds: 1200,
+                daily_limit_seconds: 10800,
+                remaining_seconds: 9600,
+                allowed: true,
+                locked: false,
+                windows: { start: '16:00', end: '21:00' },
+                history: [30, 45, 60, 20, 110, 150, 180]
+            }
+        ];
+
+        // Helper utilities
+        function formatDuration(secs) {
+            if (secs <= 0) return '0m';
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        }
+
+        function getCurrentUser() {
+            return users.find(u => u.username === selectedUserKey) || users[0];
+        }
+
+        // --- RENDER FUNCTIONS ---
+        function render() {
+            const u = getCurrentUser();
+            document.getElementById('rev-tag').innerText = `r${revision}`;
+
+            // 1. User Carousel
+            const carouselEl = document.getElementById('user-carousel');
+            carouselEl.innerHTML = users.map(user => `
+        <div class="user-pill ${user.username === selectedUserKey ? 'active' : ''}" onclick="selectUser('${user.username}')">
+          <div class="avatar">${user.username[0].toUpperCase()}</div>
+          <div class="pill-info">
+            <div class="pill-name">${user.username}</div>
+            <div class="pill-sub">${user.locked ? 'Locked' : formatDuration(user.remaining_seconds)}</div>
+          </div>
+        </div>
+      `).join('');
+
+            // 2. Status Card
+            document.getElementById('user-display-name').innerText = u.username;
+            document.getElementById('limit-display').innerText = formatDuration(u.daily_limit_seconds);
+            document.getElementById('used-display').innerText = formatDuration(u.usage_seconds);
+            document.getElementById('remaining-display').innerText = formatDuration(u.remaining_seconds);
+            document.getElementById('window-display').innerText = `${u.windows.start} - ${u.windows.end}`;
+
+            // Badge status
+            const badgeEl = document.getElementById('status-badge');
+            if (u.locked || u.remaining_seconds === 0) {
+                badgeEl.className = 'status-badge locked';
+                badgeEl.innerText = '🔒 Locked / Limit Reached';
+            } else if (u.allowed) {
+                badgeEl.className = 'status-badge allowed';
+                badgeEl.innerText = '✓ Access Allowed';
+            }
+
+            // Radial Ring Progress
+            const pct = Math.min(100, Math.round((u.usage_seconds / u.daily_limit_seconds) * 100)) || 0;
+            document.getElementById('pct-display').innerText = `${pct}% Used`;
+            const progressEl = document.getElementById('radial-progress-bar');
+            progressEl.setAttribute('stroke-dasharray', `${pct}, 100`);
+            if (u.locked || pct >= 100) {
+                progressEl.classList.add('danger');
+            } else {
+                progressEl.classList.remove('danger');
+            }
+
+            // 3. Render Historical Chart
+            const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+            const maxVal = Math.max(...u.history, 180);
+            document.getElementById('bar-chart').innerHTML = u.history.map((val, idx) => `
+        <div class="bar-col">
+          <div class="bar-fill" style="height: ${(val / maxVal) * 100}%;"></div>
+          <div class="bar-label">${days[idx]}</div>
+        </div>
+      `).join('');
+
+            // 4. Render Nodes
+            document.getElementById('nodes-list').innerHTML = users.map(user => `
+        <div class="card" style="padding:12px;">
+          <div style="display:flex; justify-between; justify-content:space-between; align-items:center;">
+            <div style="font-weight:bold; font-family:monospace; font-size:13px;">${user.hostname}</div>
+            <div style="font-size:10px; color:#34d399;">ONLINE</div>
+          </div>
+          <div style="font-size:11px; color:#a1a1aa; margin-top:4px;">User: ${user.username}</div>
+        </div>
+      `).join('');
+        }
+
+        // --- USER INTERACTION HANDLERS ---
+        function selectUser(key) {
+            selectedUserKey = key;
+            render();
+        }
+
+        function addMinutes(mins) {
+            const u = getCurrentUser();
+            u.daily_limit_seconds += (mins * 60);
+            u.remaining_seconds = Math.max(0, u.daily_limit_seconds - u.usage_seconds);
+            u.allowed = u.remaining_seconds > 0;
+            u.locked = false;
+            revision++;
+            render();
+        }
+
+        function lockNow() {
+            const u = getCurrentUser();
+            u.daily_limit_seconds = u.usage_seconds;
+            u.remaining_seconds = 0;
+            u.allowed = false;
+            u.locked = true;
+            revision++;
+            render();
+        }
+
+        function applyCustomOverride(e) {
+            e.preventDefault();
+            const u = getCurrentUser();
+            const start = document.getElementById('override-start').value;
+            const end = document.getElementById('override-end').value;
+            const limitMins = parseInt(document.getElementById('override-limit').value, 10);
+
+            u.windows = { start, end };
+            u.daily_limit_seconds = limitMins * 60;
+            u.remaining_seconds = Math.max(0, u.daily_limit_seconds - u.usage_seconds);
+            u.allowed = u.remaining_seconds > 0;
+            u.locked = !u.allowed;
+            revision++;
+            switchTab('status');
+            render();
+        }
+
+        function triggerRefresh() {
+            revision++;
+            render();
+        }
+
+        function switchTab(tabKey) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+
+            document.getElementById(`tab-${tabKey}`).classList.remove('hidden');
+            document.getElementById(`nav-${tabKey}`).classList.add('active');
+        }
+
+        // Initial boot
+        render();
+    </script>
+</body>
+
+</html>
