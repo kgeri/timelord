@@ -1,0 +1,17 @@
+{
+  "timezone": "UTC",
+  "status_interval_seconds": 60,
+  "offline_grace_seconds": 3600,
+  "users": [
+    {
+      "name": "dani",
+      "display_name": "Dani",
+      "policy": {
+        "enabled": true,
+        "windows": [
+          {"day": "mon", "start": "08:00", "end": "12:00", "limit_minutes": 60}
+        ]
+      }
+    }
+  ]
+}

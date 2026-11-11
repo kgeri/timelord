@@ -1,0 +1,14 @@
+{
+  "server_time": "2024-06-04T00:01:00Z",
+  "server_day": "2024-06-04",
+  "user": "dani",
+  "current_day": "2024-06-04",
+  "reported_used_seconds": 20,
+  "aggregate_used_seconds": 20,
+  "daily_limit_seconds": 3600,
+  "remaining_seconds": 3580,
+  "inside_window": false,
+  "allowed": false,
+  "deny_reason": "outside_window",
+  "acknowledged_days": ["2024-06-04"]
+}

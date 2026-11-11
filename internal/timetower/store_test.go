@@ -104,15 +104,7 @@ func TestStorePersistenceWritesCSV(t *testing.T) {
 func TestStoreMigratesLegacyJSONUsage(t *testing.T) {
 	dir := t.TempDir()
 	legacyPath := filepath.Join(dir, "state.json")
-	legacy := `{
-		"usage": [
-			{"hostname": "pc-one", "user": "dani", "day": "2024-06-03", "used_seconds": 100},
-			{"hostname": "pc-two", "user": "dani", "day": "2024-06-03", "used_seconds": 50}
-		],
-		"status": [
-			{"hostname": "pc-one", "user": "dani", "request": {"processes": []}}
-		]
-	}`
+	legacy := readTestdata(t, "legacy-state.json")
 	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
 		t.Fatalf("write legacy state: %v", err)
 	}

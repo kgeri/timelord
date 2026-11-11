@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +47,52 @@ func TestScheduleHandler(t *testing.T) {
 	}
 	if response.Usage.RemainingSeconds == nil || *response.Usage.RemainingSeconds != 3600 {
 		t.Errorf("Usage.RemainingSeconds = %v, want 3600", response.Usage.RemainingSeconds)
+	}
+}
+
+func TestScheduleUsesPerWeekdayDailyLimit(t *testing.T) {
+	monday := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
+	server, _ := newTestServerWithConfig(t, "config/per-day.json", monday)
+
+	rec := getSchedule(t, server)
+	var response Schedule
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode Monday schedule: %v", err)
+	}
+	if response.Policy == nil || response.Policy.DailyLimitSeconds != 3600 {
+		t.Fatalf("Monday policy = %+v, want daily_limit_seconds 3600", response.Policy)
+	}
+	if response.Usage.RemainingSeconds == nil || *response.Usage.RemainingSeconds != 3600 {
+		t.Errorf("Monday RemainingSeconds = %v, want 3600", response.Usage.RemainingSeconds)
+	}
+	mondayRevision := rec.Header().Get("X-Schedule-Revision")
+
+	server.now = func() time.Time { return monday.AddDate(0, 0, 1) }
+	rec = getSchedule(t, server)
+	response = Schedule{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode Tuesday schedule: %v", err)
+	}
+	if response.Policy == nil || response.Policy.DailyLimitSeconds != 5400 {
+		t.Fatalf("Tuesday policy = %+v, want daily_limit_seconds 5400", response.Policy)
+	}
+	if got := rec.Header().Get("X-Schedule-Revision"); got == mondayRevision {
+		t.Errorf("Tuesday revision = %q, want a different revision", got)
+	}
+
+	rec = putStatus(t, server, statusBodyWithDay(t, 600, "2024-06-04"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var status StatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode Tuesday status: %v", err)
+	}
+	if status.DailyLimitSeconds != 5400 {
+		t.Errorf("Tuesday DailyLimitSeconds = %d, want 5400", status.DailyLimitSeconds)
+	}
+	if status.RemainingSeconds == nil || *status.RemainingSeconds != 4800 {
+		t.Errorf("Tuesday RemainingSeconds = %v, want 4800", status.RemainingSeconds)
 	}
 }
 
@@ -114,7 +159,7 @@ func TestEnforcersListing(t *testing.T) {
 		t.Fatalf("len(Enforcers) = %d, want 0", len(listing.Enforcers))
 	}
 
-	if rec := putStatus(t, server, statusBody(1200)); rec.Code != http.StatusOK {
+	if rec := putStatus(t, server, statusBody(t, 1200)); rec.Code != http.StatusOK {
 		t.Fatalf("status update = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -144,7 +189,7 @@ func TestEnforcersListing(t *testing.T) {
 
 func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
-	if rec := putStatus(t, server, statusBody(1200)); rec.Code != http.StatusOK {
+	if rec := putStatus(t, server, statusBody(t, 1200)); rec.Code != http.StatusOK {
 		t.Fatalf("status update = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -166,7 +211,7 @@ func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
 func TestStatusHandlerRecordsMonotonicUsage(t *testing.T) {
 	server, store := newTestServer(t, testNow())
 
-	rec := putStatus(t, server, statusBody(1200))
+	rec := putStatus(t, server, statusBody(t, 1200))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -195,7 +240,7 @@ func TestStatusHandlerRecordsMonotonicUsage(t *testing.T) {
 	}
 
 	// A lower counter must not replace the stored value.
-	rec = putStatus(t, server, statusBody(1000))
+	rec = putStatus(t, server, statusBody(t, 1000))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -214,7 +259,7 @@ func TestStatusHandlerRecordsMonotonicUsage(t *testing.T) {
 func TestStatusHandlerDailyLimitReached(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	rec := putStatus(t, server, statusBody(3600))
+	rec := putStatus(t, server, statusBody(t, 3600))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -237,7 +282,7 @@ func TestStatusHandlerDailyLimitReached(t *testing.T) {
 func TestStatusHandlerDayMismatch(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	rec := putStatus(t, server, statusBodyWithDay(100, "2024-06-04"))
+	rec := putStatus(t, server, statusBodyWithDay(t, 100, "2024-06-04"))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
@@ -246,7 +291,7 @@ func TestStatusHandlerDayMismatch(t *testing.T) {
 func TestStatusHandlerRequiresHostname(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	body := strings.Replace(statusBody(100), `"hostname": "test-host",`, "", 1)
+	body := strings.Replace(statusBody(t, 100), `"hostname": "test-host",`, "", 1)
 	rec := putStatus(t, server, body)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
@@ -256,7 +301,7 @@ func TestStatusHandlerRequiresHostname(t *testing.T) {
 func TestStatusHandlerUnknownUser(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/status/other", strings.NewReader(statusBody(100)))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/status/other", strings.NewReader(statusBody(t, 100)))
 	authorize(req)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -281,7 +326,7 @@ func TestStatusHandlerRejectsInvalidJSON(t *testing.T) {
 func TestStatusHandlerRejectsUnknownField(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	body := strings.Replace(statusBody(100), `"processes"`, `"unexpected":true,"processes"`, 1)
+	body := strings.Replace(statusBody(t, 100), `"processes"`, `"unexpected":true,"processes"`, 1)
 	rec := putStatus(t, server, body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -290,11 +335,9 @@ func TestStatusHandlerRejectsUnknownField(t *testing.T) {
 
 func TestStatusHandlerOutsideWindow(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 20, 0, 0, 0, time.UTC)
-	configJSON := strings.Replace(testConfigJSON,
-		`"00:00", "end": "23:59"`, `"08:00", "end": "12:00"`, 1)
-	server, _ := newTestServerWithConfig(t, configJSON, now)
+	server, _ := newTestServerWithConfig(t, "config/outside-window.json", now)
 
-	rec := putStatus(t, server, statusBody(100))
+	rec := putStatus(t, server, statusBody(t, 100))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -313,10 +356,10 @@ func TestStatusHandlerOutsideWindow(t *testing.T) {
 func TestAggregateUsageAcrossHostnames(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 
-	if rec := putStatusAs(t, server, "pc-one", statusBody(1000)); rec.Code != http.StatusOK {
+	if rec := putStatusAs(t, server, "pc-one", statusBody(t, 1000)); rec.Code != http.StatusOK {
 		t.Fatalf("first status = %d, want 200", rec.Code)
 	}
-	rec := putStatusAs(t, server, "pc-two", statusBody(500))
+	rec := putStatusAs(t, server, "pc-two", statusBody(t, 500))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -335,12 +378,12 @@ func TestAggregateUsageAcrossHostnames(t *testing.T) {
 
 func newTestServer(t *testing.T, now time.Time) (*Server, *Store) {
 	t.Helper()
-	return newTestServerWithConfig(t, testConfigJSON, now)
+	return newTestServerWithConfig(t, "config/valid.json", now)
 }
 
-func newTestServerWithConfig(t *testing.T, configJSON string, now time.Time) (*Server, *Store) {
+func newTestServerWithConfig(t *testing.T, configPath string, now time.Time) (*Server, *Store) {
 	t.Helper()
-	config, err := LoadConfig(writeConfig(t, configJSON))
+	config, err := LoadConfig(testdataPath(configPath))
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
@@ -355,6 +398,18 @@ func newTestServerWithConfig(t *testing.T, configJSON string, now time.Time) (*S
 
 func authorize(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+testKey)
+}
+
+func getSchedule(t *testing.T, server *Server) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule/dani", nil)
+	authorize(req)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("schedule status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	return rec
 }
 
 func getListing(server *Server) *httptest.ResponseRecorder {
@@ -381,29 +436,24 @@ func putStatusAs(t *testing.T, server *Server, hostname, body string) *httptest.
 	return rec
 }
 
-func statusBody(used int64) string {
-	return statusBodyWithDay(used, "2024-06-03")
+func statusBody(t *testing.T, used int64) string {
+	t.Helper()
+	return statusBodyWithDay(t, used, "2024-06-03")
 }
 
-func statusBodyWithDay(used int64, day string) string {
-	return `{
-		"observed_at": "2024-06-03T10:00:00Z",
-		"enforcer_version": "0.2.0",
-		"hostname": "test-host",
-		"health": {"status": "ok", "last_error": null},
-		"active": true,
-		"locked": false,
-		"session_count": 1,
-		"usage": [{"day": "` + day + `", "used_seconds": ` + itoa(used) + `}],
-		"processes": [
-			{"user": "dani", "name": "firefox", "scope": "app",
-			 "instances": 1, "memory_rss_bytes": 100, "cpu_seconds_total": 2.5}
-		]
-	}`
-}
-
-func itoa(value int64) string {
-	return strconv.FormatInt(value, 10)
+func statusBodyWithDay(t *testing.T, used int64, day string) string {
+	t.Helper()
+	var request StatusRequest
+	if err := json.Unmarshal([]byte(readTestdata(t, "status", "request.json")), &request); err != nil {
+		t.Fatalf("decode status request testdata: %v", err)
+	}
+	request.Usage[0].Day = day
+	request.Usage[0].UsedSeconds = used
+	data, err := json.MarshalIndent(request, "", "  ")
+	if err != nil {
+		t.Fatalf("encode status request: %v", err)
+	}
+	return string(data)
 }
 
 func testNow() time.Time {

@@ -44,10 +44,11 @@ authoritative model and API.
 The enforcement rules remain:
 
 - a **window** is a time of day when a user may use the computer;
-- a **daily limit** is the maximum active seconds per policy day;
+- a **daily limit** is the maximum active minutes per policy day, configured
+  per weekday on its window;
 - a user with no policy, a disabled policy, or no window for today is denied;
 - usage is aggregated across all hostnames for the user;
-- a daily limit of `0` means no duration limit.
+- a missing weekday limit or `0` means no duration limit.
 
 On Linux, sessions come from systemd-logind. A local session is active when it
 is on a seat, `Remote=no`, `Active=yes`, and `LockedHint=no`. Denied local

@@ -1,0 +1,9 @@
+{
+  "usage": [
+    {"hostname": "pc-one", "user": "dani", "day": "2024-06-03", "used_seconds": 100},
+    {"hostname": "pc-two", "user": "dani", "day": "2024-06-03", "used_seconds": 50}
+  ],
+  "status": [
+    {"hostname": "pc-one", "user": "dani", "request": {"processes": []}}
+  ]
+}

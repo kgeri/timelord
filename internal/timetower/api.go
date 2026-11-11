@@ -1,6 +1,10 @@
 package timetower
 
-import "time"
+import (
+	"time"
+
+	"timelord/internal/policy"
+)
 
 // Schedule is the GET /api/v1/schedule/{user} response body.
 type Schedule struct {
@@ -12,6 +16,15 @@ type Schedule struct {
 	User                  string     `json:"user"`
 	Policy                *Policy    `json:"policy"`
 	Usage                 UsageState `json:"usage"`
+}
+
+// Policy is a user's policy as sent to Enforcers. DailyLimitSeconds is the
+// limit for the schedule's usage day, converted from the configured
+// per-weekday minutes.
+type Policy struct {
+	Enabled           bool            `json:"enabled"`
+	DailyLimitSeconds int64           `json:"daily_limit_seconds"`
+	Windows           []policy.Window `json:"windows"`
 }
 
 // UsageState is a user's usage for a policy day.

@@ -1,0 +1,8 @@
+{
+  "timezone": "UTC",
+  "status_interval_seconds": 60,
+  "users": [
+    {"name": "dani"},
+    {"name": "dani"}
+  ]
+}

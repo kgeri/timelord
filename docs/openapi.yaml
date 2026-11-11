@@ -155,7 +155,9 @@ components:
         daily_limit_seconds:
           type: integer
           minimum: 0
-          description: Maximum active seconds per policy day; `0` means no duration limit.
+          description: |
+            Maximum active seconds on the schedule's usage day, converted from
+            the configured per-weekday minutes; `0` means no duration limit.
         windows:
           type: array
           items:

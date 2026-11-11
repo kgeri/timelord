@@ -1,0 +1,16 @@
+{
+  "timezone": "UTC",
+  "status_interval_seconds": 60,
+  "users": [
+    {
+      "name": "dani",
+      "policy": {
+        "enabled": true,
+        "windows": [
+          {"day": "mon", "start": "08:00", "end": "09:00", "limit_minutes": 60},
+          {"day": "mon", "start": "10:00", "end": "11:00", "limit_minutes": 90}
+        ]
+      }
+    }
+  ]
+}

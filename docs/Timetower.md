@@ -40,9 +40,9 @@ The configuration contains users and their policies:
       "display_name": "Dani",
       "policy": {
         "enabled": true,
-        "daily_limit_seconds": 3600,
         "windows": [
-          {"day": "mon", "start": "08:00", "end": "19:00"}
+          {"day": "mon", "start": "08:00", "end": "19:00", "limit_minutes": 60},
+          {"day": "tue", "start": "08:00", "end": "20:30", "limit_minutes": 60}
         ]
       }
     }
@@ -82,13 +82,20 @@ Per-user keys would be required to isolate Enforcers from each other.
 A user is an OS account name, for example `dani`. A user has an optional policy:
 
 - `enabled` turns the policy on or off.
-- `daily_limit_seconds` is the maximum active time per policy day. `0` means no
-  duration limit.
-- `windows` lists permitted weekly intervals.
+- `windows` lists permitted weekly intervals, each with the daily limit for its
+  weekday in minutes.
 
-A window has a weekday, a start time, and an end time. Start is inclusive, end
-is exclusive, and a window cannot cross midnight. A day with no window is
-denied. Several windows on the same day are allowed and overlap as their union.
+A window has a weekday, a start time, an end time, and `limit_minutes`. Start is
+inclusive, end is exclusive, and a window cannot cross midnight. A day with no
+window is denied. Several windows on the same day are allowed and overlap as
+their union; their `limit_minutes` values must match because the limit applies
+to the whole policy day. A missing or `0` limit means no duration limit. An
+existing policy-level `daily_limit_seconds` must be moved into each window's
+`limit_minutes`; the field is not accepted in the configuration anymore.
+
+The schedule API keeps its existing `daily_limit_seconds` field. Timetower
+converts the configured minutes for the current policy day to seconds, and the
+schedule revision changes with the day so Enforcers refresh the current limit.
 
 ### Usage
 
@@ -97,8 +104,8 @@ Enforcer reports an absolute, monotonic counter in its status request.
 Timetower stores the maximum counter reported for that hostname and day, and
 sums the per-hostname counters to obtain user usage.
 
-The daily limit is shared across all hostnames. Active time on two hosts at the
-same time consumes the limit twice as fast.
+The daily limit for the current policy day is shared across all hostnames.
+Active time on two hosts at the same time consumes the limit twice as fast.
 
 Counters reset at midnight in Timetower's policy time zone. Before resetting,
 an Enforcer moves the old day's counter into a pending set so unreported usage

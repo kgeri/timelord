@@ -1,0 +1,14 @@
+{
+  "observed_at": "2024-06-03T10:00:00Z",
+  "enforcer_version": "0.2.0",
+  "hostname": "test-host",
+  "health": {"status": "ok", "last_error": null},
+  "active": true,
+  "locked": false,
+  "session_count": 1,
+  "usage": [{"day": "2024-06-03", "used_seconds": 0}],
+  "processes": [
+    {"user": "dani", "name": "firefox", "scope": "app",
+     "instances": 1, "memory_rss_bytes": 100, "cpu_seconds_total": 2.5}
+  ]
+}

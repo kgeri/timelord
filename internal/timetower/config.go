@@ -34,16 +34,23 @@ type Config struct {
 
 // User is a managed account and its policy.
 type User struct {
-	Name        string  `json:"name"`
-	DisplayName string  `json:"display_name"`
-	Policy      *Policy `json:"policy"`
+	Name        string        `json:"name"`
+	DisplayName string        `json:"display_name"`
+	Policy      *ConfigPolicy `json:"policy"`
 }
 
-// Policy is a user's permitted windows and daily limit.
-type Policy struct {
-	Enabled           bool            `json:"enabled"`
-	DailyLimitSeconds int64           `json:"daily_limit_seconds"`
-	Windows           []policy.Window `json:"windows"`
+// ConfigPolicy is a user's configured policy. Each window carries the daily
+// limit for its weekday in minutes. Windows on the same weekday must agree on
+// the limit; a missing or zero limit means no duration limit.
+type ConfigPolicy struct {
+	Enabled bool           `json:"enabled"`
+	Windows []ConfigWindow `json:"windows"`
+}
+
+// ConfigWindow is a permitted interval and the daily limit for its weekday.
+type ConfigWindow struct {
+	policy.Window
+	LimitMinutes int64 `json:"limit_minutes"`
 }
 
 // LoadConfig reads and validates a Timetower configuration file.
@@ -125,20 +132,27 @@ func (c *Config) Revision() int64 {
 	return c.revision
 }
 
+// RevisionForDay returns the schedule revision for one policy day. It changes
+// with the configuration and with the day, because the wire policy carries the
+// current day's converted daily limit.
+func (c *Config) RevisionForDay(day string) int64 {
+	h := fnv.New64a()
+	_, _ = fmt.Fprintf(h, "%d:%s", c.revision, day)
+	return int64(h.Sum64() >> 1)
+}
+
 // UserByName returns the configured user.
 func (c *Config) UserByName(name string) (*User, bool) {
 	user, ok := c.usersByName[name]
 	return user, ok
 }
 
-// Validate checks the policy's daily limit and windows.
-func (p *Policy) Validate() error {
+// Validate checks the policy's daily limits and windows.
+func (p *ConfigPolicy) Validate() error {
 	if p == nil {
 		return nil
 	}
-	if p.DailyLimitSeconds < 0 {
-		return fmt.Errorf("daily_limit_seconds must not be negative")
-	}
+	limits := make(map[policy.Day]int64, len(p.Windows))
 	for i, window := range p.Windows {
 		if !window.Day.Valid() {
 			return fmt.Errorf("windows[%d]: unknown day %q", i, window.Day)
@@ -152,8 +166,39 @@ func (p *Policy) Validate() error {
 		if window.End <= window.Start {
 			return fmt.Errorf("windows[%d]: end must be later than start", i)
 		}
+		if window.LimitMinutes < 0 {
+			return fmt.Errorf("windows[%d]: limit_minutes must not be negative", i)
+		}
+		if window.LimitMinutes > (1<<63-1)/60 {
+			return fmt.Errorf("windows[%d]: limit_minutes is too large", i)
+		}
+		if previous, ok := limits[window.Day]; ok && previous != window.LimitMinutes {
+			return fmt.Errorf("windows[%d]: limit_minutes for %s must match its other windows", i, window.Day)
+		}
+		limits[window.Day] = window.LimitMinutes
 	}
 	return nil
+}
+
+// ForDay returns the API representation of the policy for one weekday. The
+// configured minutes are converted to the API's seconds field.
+func (p *ConfigPolicy) ForDay(day policy.Day) *Policy {
+	if p == nil {
+		return nil
+	}
+	windows := make([]policy.Window, len(p.Windows))
+	var minutes int64
+	for i, window := range p.Windows {
+		windows[i] = window.Window
+		if window.Day == day {
+			minutes = window.LimitMinutes
+		}
+	}
+	return &Policy{
+		Enabled:           p.Enabled,
+		DailyLimitSeconds: minutes * 60,
+		Windows:           windows,
+	}
 }
 
 // InsideWindow reports whether now is inside one of the policy's windows.
@@ -178,6 +223,10 @@ func (p *Policy) Allowed(now time.Time, usedSeconds int64, loc *time.Location) b
 		return false
 	}
 	return p.DailyLimitSeconds == 0 || usedSeconds < p.DailyLimitSeconds
+}
+
+func policyDay(now time.Time, loc *time.Location) policy.Day {
+	return weekdayDays[int(now.In(loc).Weekday())]
 }
 
 var weekdayDays = [...]policy.Day{

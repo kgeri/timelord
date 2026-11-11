@@ -2,10 +2,10 @@ package enforcer
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
-	"timelord/internal/policy"
 	"timelord/internal/process"
 	"timelord/internal/session"
 	"timelord/internal/timetower"
@@ -13,7 +13,7 @@ import (
 
 func TestAgentRecordsUsageAndReportsStatus(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
 	sessions := &fakeSessions{sessions: []session.Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
@@ -57,24 +57,11 @@ func TestAgentRecordsUsageAndReportsStatus(t *testing.T) {
 
 func TestAgentAdoptsServerUsage(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	remaining := int64(3100)
 	client := &fakeClient{
-		schedule:         testSchedule(now),
+		schedule:         testSchedule(t, now),
 		scheduleRevision: 42,
 		statusRevision:   42,
-		statusResponse: &timetower.StatusResponse{
-			ServerTime:           now,
-			ServerDay:            "2024-06-03",
-			User:                 "dani",
-			CurrentDay:           "2024-06-03",
-			ReportedUsedSeconds:  100,
-			AggregateUsedSeconds: 500,
-			DailyLimitSeconds:    3600,
-			RemainingSeconds:     &remaining,
-			InsideWindow:         true,
-			Allowed:              true,
-			AcknowledgedDays:     []string{"2024-06-03"},
-		},
+		statusResponse:   testStatusResponse(t, "status", "response.json"),
 	}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
@@ -99,24 +86,11 @@ func TestAgentAdoptsServerUsage(t *testing.T) {
 
 func TestAgentAddsLocalUsageToOlderServerCounter(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	remaining := int64(2600)
 	client := &fakeClient{
-		schedule:         testSchedule(now),
+		schedule:         testSchedule(t, now),
 		scheduleRevision: 42,
 		statusRevision:   42,
-		statusResponse: &timetower.StatusResponse{
-			ServerTime:           now,
-			ServerDay:            "2024-06-03",
-			User:                 "dani",
-			CurrentDay:           "2024-06-03",
-			ReportedUsedSeconds:  500,
-			AggregateUsedSeconds: 1000,
-			DailyLimitSeconds:    3600,
-			RemainingSeconds:     &remaining,
-			InsideWindow:         true,
-			Allowed:              true,
-			AcknowledgedDays:     []string{"2024-06-03"},
-		},
+		statusResponse:   testStatusResponse(t, "status", "response-older-counter.json"),
 	}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
@@ -142,7 +116,7 @@ func TestAgentAddsLocalUsageToOlderServerCounter(t *testing.T) {
 
 func TestAgentRefreshesSchedulesWhenRevisionChanges(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 43}
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 43}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
 	if err := agent.fetchSchedules(context.Background()); err != nil {
@@ -162,7 +136,7 @@ func TestAgentRefreshesSchedulesWhenRevisionChanges(t *testing.T) {
 
 func TestAgentTerminatesDeniedSession(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 20, 0, 0, 0, time.UTC)
-	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
 	sessions := &fakeSessions{sessions: []session.Session{{
 		ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: true,
 	}}}
@@ -180,7 +154,7 @@ func TestAgentTerminatesDeniedSession(t *testing.T) {
 
 func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
 	if err := agent.fetchSchedules(context.Background()); err != nil {
@@ -211,24 +185,11 @@ func TestAgentDayRolloverMovesUsageToPending(t *testing.T) {
 
 func TestAgentAdoptsServerDayOnStatus(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 23, 59, 0, 0, time.UTC)
-	remaining := int64(3580)
 	client := &fakeClient{
-		schedule:         testSchedule(now),
+		schedule:         testSchedule(t, now),
 		scheduleRevision: 42,
 		statusRevision:   42,
-		statusResponse: &timetower.StatusResponse{
-			ServerTime:           now.Add(2 * time.Minute),
-			ServerDay:            "2024-06-04",
-			User:                 "dani",
-			CurrentDay:           "2024-06-04",
-			ReportedUsedSeconds:  20,
-			AggregateUsedSeconds: 20,
-			DailyLimitSeconds:    3600,
-			RemainingSeconds:     &remaining,
-			InsideWindow:         false,
-			Allowed:              false,
-			AcknowledgedDays:     []string{"2024-06-04"},
-		},
+		statusResponse:   testStatusResponse(t, "status", "response-day-rollover.json"),
 	}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
@@ -254,7 +215,7 @@ func TestAgentAdoptsServerDayOnStatus(t *testing.T) {
 
 func TestAgentOfflineGraceDenies(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
-	client := &fakeClient{schedule: testSchedule(now), scheduleRevision: 42, statusRevision: 42}
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
 	agent := newTestAgent(t, &now, client, &fakeSessions{})
 
 	if err := agent.fetchSchedules(context.Background()); err != nil {
@@ -293,28 +254,24 @@ func newTestAgent(t *testing.T, now *time.Time, client Client, sessions session.
 	})
 }
 
-func testSchedule(now time.Time) *timetower.Schedule {
-	remaining := int64(3600)
-	return &timetower.Schedule{
-		SchemaVersion:         1,
-		ServerTime:            now,
-		Timezone:              "UTC",
-		StatusIntervalSeconds: 60,
-		OfflineGraceSeconds:   3600,
-		User:                  "dani",
-		Policy: &timetower.Policy{
-			Enabled:           true,
-			DailyLimitSeconds: 3600,
-			Windows: []policy.Window{{
-				Day: policy.Monday, Start: 8 * 60, End: 19 * 60,
-			}},
-		},
-		Usage: timetower.UsageState{
-			Day:              now.Format(dateLayout),
-			UsedSeconds:      0,
-			RemainingSeconds: &remaining,
-		},
+func testSchedule(t *testing.T, now time.Time) *timetower.Schedule {
+	t.Helper()
+	var schedule timetower.Schedule
+	if err := json.Unmarshal(readTestdata(t, "schedule.json"), &schedule); err != nil {
+		t.Fatalf("decode schedule testdata: %v", err)
 	}
+	schedule.ServerTime = now
+	schedule.Usage.Day = now.Format(dateLayout)
+	return &schedule
+}
+
+func testStatusResponse(t *testing.T, parts ...string) *timetower.StatusResponse {
+	t.Helper()
+	var response timetower.StatusResponse
+	if err := json.Unmarshal(readTestdata(t, parts...), &response); err != nil {
+		t.Fatalf("decode status response testdata: %v", err)
+	}
+	return &response
 }
 
 type fakeClient struct {

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "server_time": "2024-06-03T10:00:00Z",
+  "timezone": "UTC",
+  "status_interval_seconds": 60,
+  "offline_grace_seconds": 3600,
+  "user": "dani",
+  "policy": {
+    "enabled": true,
+    "daily_limit_seconds": 3600,
+    "windows": [
+      {"day": "mon", "start": "08:00", "end": "19:00"}
+    ]
+  },
+  "usage": {
+    "day": "2024-06-03",
+    "used_seconds": 0,
+    "remaining_seconds": 3600
+  }
+}

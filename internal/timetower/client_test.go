@@ -24,12 +24,7 @@ func TestClientFetchSchedule(t *testing.T) {
 			t.Errorf("User-Agent = %q, want timelord-enforcer/test", got)
 		}
 		w.Header().Set("X-Schedule-Revision", "42")
-		json.NewEncoder(w).Encode(Schedule{
-			SchemaVersion: 1,
-			ServerTime:    time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
-			Timezone:      "UTC",
-			User:          "dani",
-		})
+		w.Write([]byte(readTestdata(t, "schedule.json")))
 	}))
 	defer server.Close()
 
@@ -70,11 +65,7 @@ func TestClientSendStatus(t *testing.T) {
 		}
 
 		w.Header().Set("X-Schedule-Revision", "43")
-		json.NewEncoder(w).Encode(StatusResponse{
-			ServerTime: time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC),
-			ServerDay:  "2024-06-03",
-			User:       "dani",
-		})
+		w.Write([]byte(readTestdata(t, "status", "response.json")))
 	}))
 	defer server.Close()
 

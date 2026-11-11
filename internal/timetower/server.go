@@ -95,7 +95,9 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := s.now().UTC()
-	day := now.In(s.cfg.Location()).Format(dateLayout)
+	loc := s.cfg.Location()
+	day := now.In(loc).Format(dateLayout)
+	policy := user.Policy.ForDay(policyDay(now, loc))
 	used := s.store.AggregateUsage(user.Name, day)
 	response := Schedule{
 		SchemaVersion:         SchemaVersion,
@@ -104,15 +106,15 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 		StatusIntervalSeconds: s.cfg.StatusIntervalSeconds,
 		OfflineGraceSeconds:   s.cfg.OfflineGraceSeconds,
 		User:                  user.Name,
-		Policy:                user.Policy,
+		Policy:                policy,
 		Usage: UsageState{
 			Day:              day,
 			UsedSeconds:      used,
-			RemainingSeconds: remainingSeconds(user.Policy, used),
+			RemainingSeconds: remainingSeconds(policy, used),
 		},
 	}
 
-	writeRevision(w, s.cfg.Revision())
+	writeRevision(w, s.cfg.RevisionForDay(day))
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -169,7 +171,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := s.statusResponse(user, request.Hostname, acknowledged, now, serverDay)
-	writeRevision(w, s.cfg.Revision())
+	writeRevision(w, s.cfg.RevisionForDay(serverDay))
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -253,6 +255,7 @@ func (s *Server) presence(hostname string) (bool, *time.Time) {
 func (s *Server) enforcerList(now time.Time) EnforcerList {
 	loc := s.cfg.Location()
 	day := now.In(loc).Format(dateLayout)
+	today := policyDay(now, loc)
 	response := EnforcerList{
 		ServerTime: now,
 		ServerDay:  day,
@@ -292,7 +295,7 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 			if !ok {
 				continue
 			}
-			policy := user.Policy
+			policy := user.Policy.ForDay(today)
 			used := s.store.AggregateUsage(user.Name, day)
 			inside := policy.InsideWindow(now, loc)
 			allowed := policy.Allowed(now, used, loc)
@@ -317,7 +320,7 @@ func (s *Server) enforcerList(now time.Time) EnforcerList {
 
 func (s *Server) statusResponse(user *User, hostname string, acknowledged []string, now time.Time, serverDay string) StatusResponse {
 	loc := s.cfg.Location()
-	policy := user.Policy
+	policy := user.Policy.ForDay(policyDay(now, loc))
 	reported := s.store.Usage(hostname, user.Name, serverDay)
 	aggregate := s.store.AggregateUsage(user.Name, serverDay)
 	inside := policy.InsideWindow(now, loc)

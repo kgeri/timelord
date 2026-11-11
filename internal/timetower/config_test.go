@@ -1,8 +1,6 @@
 package timetower
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,9 +9,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	path := writeConfig(t, testConfigJSON)
-
-	config, err := LoadConfig(path)
+	config, err := LoadConfig(testdataPath("config", "valid.json"))
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
@@ -34,8 +30,8 @@ func TestLoadConfig(t *testing.T) {
 	if user.Policy == nil {
 		t.Fatal("user.Policy = nil")
 	}
-	if user.Policy.DailyLimitSeconds != 3600 {
-		t.Errorf("DailyLimitSeconds = %d, want 3600", user.Policy.DailyLimitSeconds)
+	if got := mondayLimitMinutes(user.Policy); got != 60 {
+		t.Errorf("Monday daily limit = %d, want 60 minutes", got)
 	}
 }
 
@@ -48,8 +44,8 @@ func TestLoadDefaultConfig(t *testing.T) {
 	if !ok {
 		t.Fatal("default user not found")
 	}
-	if user.Policy == nil || user.Policy.DailyLimitSeconds != 3600 {
-		t.Fatalf("default daily limit = %+v, want 3600 seconds", user.Policy)
+	if user.Policy == nil || mondayLimitMinutes(user.Policy) != 60 {
+		t.Fatalf("default daily limit = %+v, want 60 minutes", user.Policy)
 	}
 	for _, window := range user.Policy.Windows {
 		if window.Day == policy.Tuesday && window.End.String() != "20:30" {
@@ -66,44 +62,44 @@ func TestLoadConfigMissing(t *testing.T) {
 }
 
 func TestConfigValidateRejectsInvalidValues(t *testing.T) {
-	tests := map[string]string{
-		"empty timezone": `{
-			"timezone":"",
-			"status_interval_seconds":60,
-			"users":[]
-		}`,
-		"bad timezone": `{
-			"timezone":"Not/AZone",
-			"status_interval_seconds":60,
-			"users":[]
-		}`,
-		"zero status interval": `{
-			"timezone":"UTC",
-			"status_interval_seconds":0,
-			"users":[]
-		}`,
-		"duplicate user": `{
-			"timezone":"UTC",
-			"status_interval_seconds":60,
-			"users":[{"name":"dani"},{"name":"dani"}]
-		}`,
-		"bad window": `{
-			"timezone":"UTC",
-			"status_interval_seconds":60,
-			"users":[{"name":"dani","policy":{"enabled":true,"daily_limit_seconds":0,"windows":[{"day":"mon","start":"19:00","end":"08:00"}]}}]
-		}`,
+	files := []string{
+		"empty-timezone.json",
+		"bad-timezone.json",
+		"zero-status-interval.json",
+		"duplicate-user.json",
+		"bad-window.json",
+		"unknown-window-day.json",
+		"negative-limit.json",
+		"conflicting-limits.json",
 	}
 
-	for name, content := range tests {
-		t.Run(name, func(t *testing.T) {
-			var config Config
-			if err := json.Unmarshal([]byte(content), &config); err != nil {
-				t.Fatalf("unmarshal config: %v", err)
-			}
-			if err := config.Validate(); err == nil {
-				t.Fatal("Validate() error = nil, want error")
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
+			if _, err := LoadConfig(testdataPath("config", "invalid", file)); err == nil {
+				t.Fatal("LoadConfig() error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestConfigPolicyForDay(t *testing.T) {
+	config, err := LoadConfig(testdataPath("config", "per-day.json"))
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	user, ok := config.UserByName("dani")
+	if !ok {
+		t.Fatal("UserByName(dani) not found")
+	}
+
+	if got := user.Policy.ForDay(policy.Monday).DailyLimitSeconds; got != 3600 {
+		t.Errorf("Monday DailyLimitSeconds = %d, want 3600", got)
+	}
+	if got := user.Policy.ForDay(policy.Tuesday).DailyLimitSeconds; got != 5400 {
+		t.Errorf("Tuesday DailyLimitSeconds = %d, want 5400", got)
+	}
+	if got := user.Policy.ForDay(policy.Wednesday).DailyLimitSeconds; got != 0 {
+		t.Errorf("Wednesday DailyLimitSeconds = %d, want 0", got)
 	}
 }
 
@@ -141,30 +137,11 @@ func TestPolicyInsideWindow(t *testing.T) {
 	}
 }
 
-func writeConfig(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "timetower.json")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	return path
-}
-
-const testConfigJSON = `{
-	"timezone": "UTC",
-	"status_interval_seconds": 60,
-	"offline_grace_seconds": 3600,
-	"users": [
-		{
-			"name": "dani",
-			"display_name": "Dani",
-			"policy": {
-				"enabled": true,
-				"daily_limit_seconds": 3600,
-				"windows": [
-					{"day": "mon", "start": "00:00", "end": "23:59"}
-				]
-			}
+func mondayLimitMinutes(p *ConfigPolicy) int64 {
+	for _, window := range p.Windows {
+		if window.Day == policy.Monday {
+			return window.LimitMinutes
 		}
-	]
-}`
+	}
+	return 0
+}
