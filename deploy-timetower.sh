@@ -79,6 +79,21 @@ if [ "${TIMETOWER_FORCE_CONFIG:-0}" = "1" ] || ! ssh "$TIMETOWER_HOST" "test -e 
 	scp "$DEFAULT_CONFIG" "$TIMETOWER_HOST:$CONFIG_PATH"
 fi
 
+# Run the container as the owner of the hostPath directory so it can write the
+# state file without running as root.
+TIMETOWER_UID=$(ssh "$TIMETOWER_HOST" "stat -c '%u' '$TIMETOWER_DIR'")
+TIMETOWER_GID=$(ssh "$TIMETOWER_HOST" "stat -c '%g' '$TIMETOWER_DIR'")
+case "$TIMETOWER_UID" in
+	''|*[!0-9]*) echo "ERROR: invalid hostPath owner UID: $TIMETOWER_UID" >&2; exit 1 ;;
+esac
+case "$TIMETOWER_GID" in
+	''|*[!0-9]*) echo "ERROR: invalid hostPath owner GID: $TIMETOWER_GID" >&2; exit 1 ;;
+esac
+if [ "$TIMETOWER_UID" = "0" ]; then
+	echo "ERROR: $TIMETOWER_DIR is owned by root; chown it to the deploy user" >&2
+	exit 1
+fi
+
 # Tests
 (cd "$CWD" && go test ./...)
 (cd "$CWD" && go vet ./...)
@@ -97,7 +112,7 @@ docker tag "timetower:$TAG" "${IMAGE_REPOSITORY}:$TAG"
 docker push "${IMAGE_REPOSITORY}:$TAG"
 
 # Deploy
-NAMESPACE="$NAMESPACE" TIMETOWER_NODE="$TIMETOWER_NODE" TIMETOWER_DIR="$TIMETOWER_DIR" IMAGE_TAG="$TAG" envsubst < "$CWD/deploy/timetower/deployment.yaml" | kubectl apply -f -
+NAMESPACE="$NAMESPACE" TIMETOWER_NODE="$TIMETOWER_NODE" TIMETOWER_DIR="$TIMETOWER_DIR" TIMETOWER_UID="$TIMETOWER_UID" TIMETOWER_GID="$TIMETOWER_GID" IMAGE_TAG="$TAG" envsubst < "$CWD/deploy/timetower/deployment.yaml" | kubectl apply -f -
 kubectl rollout restart deployment/timetower --namespace "$NAMESPACE"
 kubectl rollout status deployment/timetower --namespace "$NAMESPACE" --timeout=120s
 

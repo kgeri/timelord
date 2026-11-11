@@ -212,7 +212,9 @@ same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override
 the SSH target; set `TIMETOWER_NODE` to override the Kubernetes node name.
 
 Usage and status state is stored alongside the configuration in
-`/data/hosted/timetower/state.json`.
+`/data/hosted/timetower/state.json`. The deploy script reads the directory
+owner's UID/GID and runs the container as that user, so the pod does not need to
+run as root.
 
 On Linux, `deploy-enforcer-linux.sh` installs `/etc/timelord.env` with mode
 `0600`, and the systemd unit loads it with `EnvironmentFile`. Set

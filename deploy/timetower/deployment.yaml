@@ -99,6 +99,9 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: ${TIMETOWER_UID}
+            runAsGroup: ${TIMETOWER_GID}
             capabilities:
               drop:
                 - ALL

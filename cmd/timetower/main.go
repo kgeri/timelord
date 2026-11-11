@@ -25,10 +25,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("timetower: load config: %v", err)
 	}
-	for i := range config.Users {
-		log.Printf("timetower: user %q", config.Users[i].Name)
-	}
-
 	key := os.Getenv("TIMELORD_KEY")
 	if key == "" {
 		log.Fatal("timetower: TIMELORD_KEY is not set")
