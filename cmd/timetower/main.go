@@ -25,6 +25,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("timetower: load config: %v", err)
 	}
+	for i := range config.Enforcers {
+		enforcer := &config.Enforcers[i]
+		log.Printf("timetower: enforcer %q at %s", enforcer.Name, enforcer.IP)
+	}
 
 	store, err := timetower.NewStore(*statePath)
 	if err != nil {

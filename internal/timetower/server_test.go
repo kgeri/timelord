@@ -145,6 +145,20 @@ func TestHeartbeatTimeoutMarksOffline(t *testing.T) {
 	}
 }
 
+func TestScheduleMatchesClientIPAnywhereInForwardedChain(t *testing.T) {
+	server, _ := newTestServer(t, testNow())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedule", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "192.0.2.10, 10.0.0.1")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestScheduleUnknownEnforcer(t *testing.T) {
 	server, _ := newTestServer(t, testNow())
 

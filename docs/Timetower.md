@@ -31,8 +31,9 @@ The configuration maps each Enforcer's source IP address to its managed
 subjects and OS accounts. An Enforcer receives only the subjects configured for
 its address. Requests from unconfigured addresses are rejected.
 
-Timetower uses the rightmost `X-Forwarded-For` address set by the ingress,
-falling back to `X-Real-IP` and the direct peer address.
+Timetower resolves the client address from the `X-Forwarded-For` chain (right
+to left), then `X-Real-IP`, then the direct peer address. It accepts the first
+address that matches a configured Enforcer.
 
 ## Model
 
@@ -170,7 +171,10 @@ Enforcer.
 `deploy-timetower.sh` seeds `/data/hosted/timetower/config.json` on `srvu`
 from `deploy/timetower/config-default.json` when it is missing, builds and
 pushes the Timetower image, and applies the Kubernetes manifests in
-`deploy/timetower/deployment.yaml`. The Deployment is pinned to `srvu` so its hostPath volumes are always on the
+`deploy/timetower/deployment.yaml`. Set `TIMETOWER_FORCE_CONFIG=1` to replace an
+existing config with the default.
+
+The Deployment is pinned to `srvu` so its hostPath volumes are always on the
 same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override
 the SSH target; set `TIMETOWER_NODE` to override the Kubernetes node name.
 

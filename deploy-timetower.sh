@@ -14,8 +14,9 @@
 # builds and pushes the image, and applies the Kubernetes manifests.
 #
 # The script creates /data/hosted/timetower on the target host and copies the
-# default config there over SSH/SCP. TIMETOWER_HOST can replace the host
-# argument.
+# default config there over SSH/SCP when it is missing. Set
+# TIMETOWER_FORCE_CONFIG=1 to replace an existing config with the default.
+# TIMETOWER_HOST can replace the host argument.
 #
 # Set TIMETOWER_NODE to override the Kubernetes node name (default srvu).
 # Set TIMETOWER_DIR to override /data/hosted/timetower.
@@ -41,9 +42,10 @@ if [ ! -f "$DEFAULT_CONFIG" ]; then
 	exit 1
 fi
 
-# Seed the live config once. An existing host config is never overwritten.
+# Seed the live config once. An existing host config is preserved unless
+# TIMETOWER_FORCE_CONFIG=1 is set.
 ssh "$TIMETOWER_HOST" "mkdir -p '$TIMETOWER_DIR'"
-if ! ssh "$TIMETOWER_HOST" "test -e '$CONFIG_PATH'"; then
+if [ "${TIMETOWER_FORCE_CONFIG:-0}" = "1" ] || ! ssh "$TIMETOWER_HOST" "test -e '$CONFIG_PATH'"; then
 	scp "$DEFAULT_CONFIG" "$TIMETOWER_HOST:$CONFIG_PATH"
 fi
 

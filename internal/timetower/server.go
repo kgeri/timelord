@@ -61,7 +61,7 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 
 	enforcer, ok := s.enforcerForRequest(r)
 	if !ok {
-		http.Error(w, "unknown enforcer", http.StatusForbidden)
+		s.rejectUnknownEnforcer(w, r)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	enforcer, ok := s.enforcerForRequest(r)
 	if !ok {
-		http.Error(w, "unknown enforcer", http.StatusForbidden)
+		s.rejectUnknownEnforcer(w, r)
 		return
 	}
 
@@ -346,37 +346,67 @@ func (s *Server) recordUsage(enforcer *Enforcer, request StatusRequest, serverDa
 	return acknowledged, nil
 }
 
-func (s *Server) enforcerForRequest(r *http.Request) (*Enforcer, bool) {
+func (s *Server) rejectUnknownEnforcer(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if ip == nil {
-		return nil, false
-	}
-	return s.cfg.EnforcerByIP(ip.String())
+	log.Printf("WARN: unknown enforcer ip=%q remote=%q x-forwarded-for=%q x-real-ip=%q forwarded=%q",
+		ip, r.RemoteAddr, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"), r.Header.Get("Forwarded"))
+	http.Error(w, "unknown enforcer", http.StatusForbidden)
 }
 
-// clientIP returns the client address as seen through the ingress. Traefik
-// appends the address it observed to X-Forwarded-For, so the rightmost valid
-// entry is the Enforcer's address. The direct peer address is the fallback.
-func clientIP(r *http.Request) net.IP {
+func (s *Server) enforcerForRequest(r *http.Request) (*Enforcer, bool) {
+	// Try every address in the forwarded chain. Traefik may append its own
+	// peer address after the real client, and a k3s service hop can add
+	// another address. Only configured Enforcer addresses are accepted.
+	for _, ip := range clientIPs(r) {
+		if enforcer, ok := s.cfg.EnforcerByIP(ip.String()); ok {
+			return enforcer, true
+		}
+	}
+	return nil, false
+}
+
+// clientIPs returns the resolved client addresses in preference order. The
+// X-Forwarded-For chain is walked from right to left, followed by X-Real-IP and
+// the direct peer address.
+func clientIPs(r *http.Request) []net.IP {
+	var addresses []net.IP
+	seen := make(map[string]bool)
+
+	add := func(value string) {
+		ip := parseIP(strings.TrimSpace(value))
+		if ip == nil {
+			return
+		}
+		key := ip.String()
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		addresses = append(addresses, ip)
+	}
+
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		parts := strings.Split(forwarded, ",")
 		for i := len(parts) - 1; i >= 0; i-- {
-			if ip := parseIP(strings.TrimSpace(parts[i])); ip != nil {
-				return ip
-			}
+			add(parts[i])
 		}
 	}
-	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-		if ip := parseIP(realIP); ip != nil {
-			return ip
-		}
-	}
+	add(r.Header.Get("X-Real-IP"))
 
 	host := r.RemoteAddr
 	if splitHost, _, err := net.SplitHostPort(host); err == nil {
 		host = splitHost
 	}
-	return parseIP(host)
+	add(host)
+	return addresses
+}
+
+func clientIP(r *http.Request) net.IP {
+	addresses := clientIPs(r)
+	if len(addresses) == 0 {
+		return nil
+	}
+	return addresses[0]
 }
 
 func parseIP(value string) net.IP {
