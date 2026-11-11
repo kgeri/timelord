@@ -18,7 +18,7 @@ import (
 func main() {
 	listen := flag.String("listen", "0.0.0.0:8080", "address for the Timetower API")
 	configPath := flag.String("config", "timetower.json", "path to the Timetower configuration file")
-	statePath := flag.String("state", "timetower-usage.csv", "path to the persisted usage CSV")
+	statePath := flag.String("state", "timetower-usage.csv", "path to the persisted state CSV (usage and overrides)")
 	flag.Parse()
 
 	config, err := timetower.LoadConfig(*configPath)
@@ -35,9 +35,9 @@ func main() {
 		log.Fatalf("timetower: load state: %v", err)
 	}
 
-	// Keep the documented 400-day usage window.
+	// Keep the documented 400-day usage and override window.
 	cutoff := time.Now().In(config.Location()).AddDate(0, 0, -400).Format("2006-01-02")
-	store.PruneUsage(cutoff)
+	store.Prune(cutoff)
 
 	api := timetower.NewServer(config, store, key)
 	httpServer := &http.Server{

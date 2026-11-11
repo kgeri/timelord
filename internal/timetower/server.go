@@ -219,6 +219,9 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.store.SetOverride(user.Name, day, next)
 	}
+	if err := s.store.Save(); err != nil {
+		log.Printf("WARN: save state: %v", err)
+	}
 
 	policy := s.policyForDay(user, weekday, day)
 	var limit int64

@@ -104,8 +104,8 @@ paths:
         A start or end override collapses the day's configured windows into one
         interval using the effective boundaries. A day with no configured
         window defaults to 00:00-23:59, so a start or end override creates a
-        window and allows that day. Overrides are in-memory and are cleared
-        when the policy day changes or Timetower restarts.
+        window and allows that day. Overrides are persisted with usage and are
+        keyed by policy day.
       operationId: putOverride
       security:
         - BearerAuth: []

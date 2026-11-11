@@ -17,8 +17,8 @@ import (
 	"timelord/internal/policy"
 )
 
-// Store holds usage counters and the latest in-memory status per hostname and
-// user. Only usage is persisted.
+// Store holds usage counters, current-day overrides, and the latest in-memory
+// status per hostname and user. Usage and overrides are persisted.
 type Store struct {
 	mu       sync.Mutex
 	saveMu   sync.Mutex
@@ -64,16 +64,18 @@ func (o DayOverride) empty() bool {
 	return o.Start == nil && o.End == nil && o.LimitMinutes == nil
 }
 
-// UsageRecord is one row in the usage CSV.
-type UsageRecord struct {
-	Date        string
-	User        string
-	Hostname    string
-	UsedSeconds int64
+type stateRecord struct {
+	date         string
+	user         string
+	hostname     string
+	usedSeconds  string
+	start        string
+	end          string
+	limitMinutes string
 }
 
-// NewStore creates a store and loads usage from the CSV at path. A missing CSV
-// starts with empty usage. An empty path keeps usage in memory only.
+// NewStore creates a store and loads usage and overrides from the CSV at path.
+// A missing CSV starts empty. An empty path keeps everything in memory only.
 func NewStore(path string) (*Store, error) {
 	store := &Store{
 		path:     path,
@@ -115,24 +117,88 @@ func (s *Store) loadCSV() error {
 		if i == 0 && strings.EqualFold(strings.TrimSpace(row[0]), "date") {
 			continue
 		}
-		if len(row) != 4 {
-			return fmt.Errorf("row %d: expected date,user,hostname,used_seconds", i+1)
-		}
-		date := strings.TrimSpace(row[0])
-		user := strings.TrimSpace(row[1])
-		hostname := strings.TrimSpace(row[2])
-		used, err := strconv.ParseInt(strings.TrimSpace(row[3]), 10, 64)
-		if err != nil || used < 0 || user == "" || hostname == "" {
-			return fmt.Errorf("row %d: invalid usage record", i+1)
-		}
-		if _, err := time.Parse(dateLayout, date); err != nil {
-			return fmt.Errorf("row %d: invalid date %q", i+1, date)
-		}
-		key := usageKey{hostname: hostname, user: user, day: date}
-		if used > s.usage[key] {
-			s.usage[key] = used
+		switch len(row) {
+		case 4:
+			if err := s.loadUsageRow(i+1, row); err != nil {
+				return err
+			}
+		case 7:
+			if strings.TrimSpace(row[2]) != "" {
+				if strings.TrimSpace(row[4]) != "" || strings.TrimSpace(row[5]) != "" || strings.TrimSpace(row[6]) != "" {
+					return fmt.Errorf("row %d: usage record has override fields", i+1)
+				}
+				if err := s.loadUsageRow(i+1, row[:4]); err != nil {
+					return err
+				}
+				continue
+			}
+			if strings.TrimSpace(row[3]) != "" {
+				return fmt.Errorf("row %d: override record has used_seconds", i+1)
+			}
+			if err := s.loadOverrideRow(i+1, row); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("row %d: expected 4 or 7 columns", i+1)
 		}
 	}
+	return nil
+}
+
+func (s *Store) loadUsageRow(line int, row []string) error {
+	date := strings.TrimSpace(row[0])
+	user := strings.TrimSpace(row[1])
+	hostname := strings.TrimSpace(row[2])
+	used, err := strconv.ParseInt(strings.TrimSpace(row[3]), 10, 64)
+	if err != nil || used < 0 || user == "" || hostname == "" {
+		return fmt.Errorf("row %d: invalid usage record", line)
+	}
+	if _, err := time.Parse(dateLayout, date); err != nil {
+		return fmt.Errorf("row %d: invalid date %q", line, date)
+	}
+	key := usageKey{hostname: hostname, user: user, day: date}
+	if used > s.usage[key] {
+		s.usage[key] = used
+	}
+	return nil
+}
+
+func (s *Store) loadOverrideRow(line int, row []string) error {
+	date := strings.TrimSpace(row[0])
+	user := strings.TrimSpace(row[1])
+	if user == "" {
+		return fmt.Errorf("row %d: invalid override record", line)
+	}
+	if _, err := time.Parse(dateLayout, date); err != nil {
+		return fmt.Errorf("row %d: invalid date %q", line, date)
+	}
+
+	var override DayOverride
+	if value := strings.TrimSpace(row[4]); value != "" {
+		start, err := policy.ParseClock(value)
+		if err != nil {
+			return fmt.Errorf("row %d: invalid start: %w", line, err)
+		}
+		override.Start = &start
+	}
+	if value := strings.TrimSpace(row[5]); value != "" {
+		end, err := policy.ParseClock(value)
+		if err != nil {
+			return fmt.Errorf("row %d: invalid end: %w", line, err)
+		}
+		override.End = &end
+	}
+	if value := strings.TrimSpace(row[6]); value != "" {
+		limit, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || limit < 0 || limit > maxLimitMinutes {
+			return fmt.Errorf("row %d: invalid limit_minutes", line)
+		}
+		override.LimitMinutes = &limit
+	}
+	if override.empty() {
+		return fmt.Errorf("row %d: empty override record", line)
+	}
+	s.override[overrideKey{user: user, day: date}] = override
 	return nil
 }
 
@@ -167,8 +233,8 @@ func (s *Store) AggregateUsage(user, day string) int64 {
 	return total
 }
 
-// SetOverride stores the current-day override for one user and day.
-// Overrides are in-memory and start empty after a restart.
+// SetOverride stores the current-day override for one user and day. Older
+// overrides for the same user are removed. Call Save to persist the change.
 func (s *Store) SetOverride(user, day string, override DayOverride) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -252,8 +318,8 @@ func (s *Store) StatusRecords() []StatusRecord {
 	return records
 }
 
-// PruneUsage removes usage records older than the given policy day.
-func (s *Store) PruneUsage(beforeDay string) {
+// Prune removes usage and override records older than the given policy day.
+func (s *Store) Prune(beforeDay string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key := range s.usage {
@@ -261,10 +327,15 @@ func (s *Store) PruneUsage(beforeDay string) {
 			delete(s.usage, key)
 		}
 	}
+	for key := range s.override {
+		if key.day < beforeDay {
+			delete(s.override, key)
+		}
+	}
 }
 
-// Save writes usage to the configured CSV file. Status records stay in memory.
-// A store with an empty path is memory-only and does nothing.
+// Save writes usage and overrides to the configured state CSV. Status records
+// stay in memory. A store with an empty path is memory-only and does nothing.
 func (s *Store) Save() error {
 	if s.path == "" {
 		return nil
@@ -274,26 +345,48 @@ func (s *Store) Save() error {
 	defer s.saveMu.Unlock()
 
 	s.mu.Lock()
-	records := make([]UsageRecord, 0, len(s.usage))
+	records := make([]stateRecord, 0, len(s.usage)+len(s.override))
 	for key, used := range s.usage {
-		records = append(records, UsageRecord{
-			Date:        key.day,
-			User:        key.user,
-			Hostname:    key.hostname,
-			UsedSeconds: used,
+		records = append(records, stateRecord{
+			date:        key.day,
+			user:        key.user,
+			hostname:    key.hostname,
+			usedSeconds: strconv.FormatInt(used, 10),
 		})
+	}
+	for key, override := range s.override {
+		record := stateRecord{date: key.day, user: key.user}
+		if override.Start != nil {
+			record.start = override.Start.String()
+		}
+		if override.End != nil {
+			record.end = override.End.String()
+		}
+		if override.LimitMinutes != nil {
+			record.limitMinutes = strconv.FormatInt(*override.LimitMinutes, 10)
+		}
+		records = append(records, record)
 	}
 	s.mu.Unlock()
 
 	sort.Slice(records, func(i, j int) bool {
 		a, b := records[i], records[j]
-		if a.Date != b.Date {
-			return a.Date < b.Date
+		if a.date != b.date {
+			return a.date < b.date
 		}
-		if a.User != b.User {
-			return a.User < b.User
+		if a.user != b.user {
+			return a.user < b.user
 		}
-		return a.Hostname < b.Hostname
+		if a.hostname != b.hostname {
+			return a.hostname < b.hostname
+		}
+		if a.start != b.start {
+			return a.start < b.start
+		}
+		if a.end != b.end {
+			return a.end < b.end
+		}
+		return a.limitMinutes < b.limitMinutes
 	})
 
 	dir := filepath.Dir(s.path)
@@ -302,7 +395,7 @@ func (s *Store) Save() error {
 			return err
 		}
 	}
-	temp, err := os.CreateTemp(dir, ".timetower-usage-*")
+	temp, err := os.CreateTemp(dir, ".timetower-state-*")
 	if err != nil {
 		return err
 	}
@@ -310,16 +403,19 @@ func (s *Store) Save() error {
 	defer os.Remove(tempName)
 
 	writer := csv.NewWriter(temp)
-	if err := writer.Write([]string{"date", "user", "hostname", "used_seconds"}); err != nil {
+	if err := writer.Write([]string{"date", "user", "hostname", "used_seconds", "start", "end", "limit_minutes"}); err != nil {
 		temp.Close()
 		return err
 	}
 	for _, record := range records {
 		if err := writer.Write([]string{
-			record.Date,
-			record.User,
-			record.Hostname,
-			strconv.FormatInt(record.UsedSeconds, 10),
+			record.date,
+			record.user,
+			record.hostname,
+			record.usedSeconds,
+			record.start,
+			record.end,
+			record.limitMinutes,
 		}); err != nil {
 			temp.Close()
 			return err

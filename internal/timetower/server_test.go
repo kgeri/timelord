@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -642,6 +643,36 @@ func TestOverrideRequiresAuth(t *testing.T) {
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestOverrideHandlerPersists(t *testing.T) {
+	config, err := LoadConfig(testdataPath("config", "valid.json"))
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "state.csv")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	server := NewServer(config, store, testKey)
+	server.now = func() time.Time { return testNow() }
+
+	if rec := overrideRequest(t, server, http.MethodPut, "request-limit.json"); rec.Code != http.StatusOK {
+		t.Fatalf("override status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	loaded, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore(load) error = %v", err)
+	}
+	override, ok := loaded.Override("dani", "2024-06-03")
+	if !ok {
+		t.Fatal("loaded Override() = unset, want set")
+	}
+	if override.LimitMinutes == nil || *override.LimitMinutes != 15 {
+		t.Errorf("loaded Override() = %+v, want limit 15", override)
 	}
 }
 

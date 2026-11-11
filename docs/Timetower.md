@@ -125,8 +125,8 @@ the effective start and end. A limit-only override keeps the configured
 windows. A day with no configured window defaults to 00:00-23:59, so setting
 `start` or `end` creates a window and allows that day.
 
-Overrides are kept in memory: they are cleared when the policy day changes or
-Timetower restarts. Changing the effective policy changes
+Overrides are persisted with usage in the state CSV and keyed by policy day, so
+they stop applying when the day changes. Changing the effective policy changes
 `X-Schedule-Revision`, so Enforcers fetch the updated schedule. A successful
 response returns the effective `windows` for the day and `limit_minutes`.
 
@@ -230,13 +230,15 @@ Timetower serves plain HTTP. The k3s ingress terminates TLS for
 
 ## Storage and retention
 
-Timetower reads its static configuration and stores daily usage in a CSV file.
-Status, process statistics, and current-day overrides stay in memory.
-Status is repopulated by the next status reports, and overrides must be set
-again after a restart. The Enforcer stores no schedule or usage files.
+Timetower reads its static configuration and stores usage and current-day
+overrides in a CSV file. Status and process statistics stay in memory and are
+repopulated by the next status reports. The Enforcer stores no schedule or
+usage files.
 
-The CSV columns are `date,user,hostname,used_seconds`. Daily usage is retained
-for 400 days.
+The CSV columns are `date,user,hostname,used_seconds,start,end,limit_minutes`.
+Usage rows fill `hostname` and `used_seconds`; override rows leave those empty
+and fill the override columns. Files with the older four-column usage-only
+header still load. Usage and overrides are retained for 400 days.
 
 ## Deployment
 
