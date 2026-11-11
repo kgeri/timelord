@@ -200,8 +200,7 @@ Status, health, and process statistics stay in memory and are repopulated by the
 next status reports. The Enforcer stores no schedule or usage files.
 
 The CSV columns are `date,user,hostname,used_seconds`. Daily usage is retained
-for 400 days. When the CSV does not exist, Timetower migrates usage from a
-sibling `state.json` once; status data from that file is ignored.
+for 400 days.
 
 ## Deployment
 

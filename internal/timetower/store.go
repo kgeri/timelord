@@ -2,11 +2,9 @@ package timetower
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,9 +51,8 @@ type UsageRecord struct {
 	UsedSeconds int64
 }
 
-// NewStore creates a store and loads usage from the CSV at path. When the CSV
-// does not exist, usage is migrated once from a sibling state.json file if one
-// is present. An empty path keeps usage in memory only.
+// NewStore creates a store and loads usage from the CSV at path. A missing CSV
+// starts with empty usage. An empty path keeps usage in memory only.
 func NewStore(path string) (*Store, error) {
 	store := &Store{
 		path:   path,
@@ -67,10 +64,6 @@ func NewStore(path string) (*Store, error) {
 	}
 
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		legacyPath := filepath.Join(filepath.Dir(path), "state.json")
-		if err := store.loadLegacy(legacyPath); err != nil {
-			log.Printf("WARN: ignore legacy state %s: %v", legacyPath, err)
-		}
 		return store, nil
 	} else if err != nil {
 		return nil, err
@@ -116,41 +109,6 @@ func (s *Store) loadCSV() error {
 		key := usageKey{hostname: hostname, user: user, day: date}
 		if used > s.usage[key] {
 			s.usage[key] = used
-		}
-	}
-	return nil
-}
-
-func (s *Store) loadLegacy(path string) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	var legacy struct {
-		Usage []struct {
-			Hostname    string `json:"hostname"`
-			User        string `json:"user"`
-			Day         string `json:"day"`
-			UsedSeconds int64  `json:"used_seconds"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	for _, record := range legacy.Usage {
-		if record.Hostname == "" || record.User == "" || record.UsedSeconds < 0 {
-			continue
-		}
-		if _, err := time.Parse(dateLayout, record.Day); err != nil {
-			continue
-		}
-		key := usageKey{hostname: record.Hostname, user: record.User, day: record.Day}
-		if record.UsedSeconds > s.usage[key] {
-			s.usage[key] = record.UsedSeconds
 		}
 	}
 	return nil

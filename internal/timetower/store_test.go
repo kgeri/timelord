@@ -100,29 +100,3 @@ func TestStorePersistenceWritesCSV(t *testing.T) {
 		t.Errorf("loaded StatusRecords() = %d, want 0", len(records))
 	}
 }
-
-func TestStoreMigratesLegacyJSONUsage(t *testing.T) {
-	dir := t.TempDir()
-	legacyPath := filepath.Join(dir, "state.json")
-	legacy := readTestdata(t, "legacy-state.json")
-	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
-		t.Fatalf("write legacy state: %v", err)
-	}
-
-	store, err := NewStore(filepath.Join(dir, "usage.csv"))
-	if err != nil {
-		t.Fatalf("NewStore() error = %v", err)
-	}
-	if got := store.AggregateUsage("dani", "2024-06-03"); got != 150 {
-		t.Errorf("migrated aggregate = %d, want 150", got)
-	}
-	if records := store.StatusRecords(); len(records) != 0 {
-		t.Errorf("migrated status records = %d, want 0", len(records))
-	}
-	if err := store.Save(); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "usage.csv")); err != nil {
-		t.Fatalf("usage.csv was not written: %v", err)
-	}
-}
