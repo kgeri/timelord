@@ -15,6 +15,8 @@ export type Override = components['schemas']['Override'];
 export type EnforcerList = components['schemas']['EnforcerList'];
 export type EnforcerStatus = components['schemas']['EnforcerStatus'];
 export type UserStatus = components['schemas']['UserStatus'];
+export type User = components['schemas']['User'];
+export type UserList = components['schemas']['UserList'];
 export type DenyReason = components['schemas']['DenyReason'];
 
 /** A schedule plus the revision advertised by `X-Schedule-Revision`. */
@@ -39,6 +41,7 @@ export interface DayUsage {
  */
 export interface UserSummary {
 	username: string;
+	display_name: string;
 	hostname: string | null;
 	used_seconds: number | null;
 	daily_limit_seconds: number | null;

@@ -15,6 +15,7 @@ import type {
 
 interface MockUser {
 	username: string;
+	displayName: string;
 	hostname: string;
 	usedSeconds: number;
 	limitMinutes: number;
@@ -32,6 +33,7 @@ const CLOCK_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const INITIAL_USERS: MockUser[] = [
 	{
 		username: 'dani',
+		displayName: 'Dani',
 		hostname: 'dani-desktop',
 		usedSeconds: 4500,
 		limitMinutes: 120,
@@ -43,6 +45,7 @@ const INITIAL_USERS: MockUser[] = [
 	},
 	{
 		username: 'alex',
+		displayName: 'Alex',
 		hostname: 'alex-laptop',
 		usedSeconds: 5400,
 		limitMinutes: 90,
@@ -54,6 +57,7 @@ const INITIAL_USERS: MockUser[] = [
 	},
 	{
 		username: 'sam',
+		displayName: 'Sam',
 		hostname: 'sam-rig',
 		usedSeconds: 1200,
 		limitMinutes: 180,
@@ -65,6 +69,7 @@ const INITIAL_USERS: MockUser[] = [
 	},
 	{
 		username: 'taylor',
+		displayName: 'Taylor',
 		hostname: 'taylor-tablet',
 		usedSeconds: 1800,
 		limitMinutes: 120,
@@ -194,6 +199,7 @@ export class MockTimetowerService implements TimetowerService {
 			const decision = decide(user, now);
 			return {
 				username: user.username,
+				display_name: user.displayName,
 				hostname: user.hostname,
 				used_seconds: user.usedSeconds,
 				daily_limit_seconds: user.limitMinutes * 60,

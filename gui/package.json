@@ -10,6 +10,7 @@
 	"scripts": {
 		"generate:api": "openapi-typescript ../docs/openapi.yaml -o src/lib/api/schema.d.ts",
 		"dev": "npm run generate:api && vite dev",
+		"mock": "npm run generate:api && vite dev --mode mock",
 		"build": "npm run generate:api && vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

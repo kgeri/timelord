@@ -98,10 +98,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List configured users
+         * @description Returns the configured accounts for the admin console. The display name
+         *     falls back to the account name when it is not configured.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        User: {
+            /** @example dani */
+            user: string;
+            /** @example Dani */
+            display_name: string;
+        };
+        UserList: {
+            users: components["schemas"]["User"][];
+        };
         Window: {
             /** @enum {string} */
             day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -366,8 +396,15 @@ export interface components {
             };
             content?: never;
         };
-        /** @description Missing or invalid bearer key. */
+        /** @description Missing or invalid credentials. */
         Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /** @description Authenticated, but the username is not allowed to use this endpoint. */
+        Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
@@ -498,6 +535,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
@@ -535,6 +573,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             405: components["responses"]["MethodNotAllowed"];
             422: components["responses"]["OverrideValidationFailed"];
@@ -559,6 +598,33 @@ export interface operations {
                     "application/json": components["schemas"]["EnforcerList"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            405: components["responses"]["MethodNotAllowed"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configured user list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             405: components["responses"]["MethodNotAllowed"];
             500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];

@@ -63,7 +63,7 @@ class Dashboard {
 			const first = this.users[0]?.username ?? '';
 			if (!first) {
 				throw new ServiceError(
-					'No monitored users are configured. Set PUBLIC_TIMETOWER_USERS.',
+					'No monitored users are configured in Timetower.',
 					404,
 					'no_users'
 				);

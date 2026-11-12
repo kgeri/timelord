@@ -1,9 +1,3 @@
-import {
-	PUBLIC_TIMETOWER_API_TOKEN,
-	PUBLIC_TIMETOWER_API_URL,
-	PUBLIC_TIMETOWER_MODE,
-	PUBLIC_TIMETOWER_USERS
-} from '$app/env/public';
 import { HttpTimetowerService } from './http';
 import { MockTimetowerService } from './mock';
 import type { TimetowerService } from './types';
@@ -13,29 +7,14 @@ export { MockTimetowerService } from './mock';
 export { ServiceError } from './errors';
 export * from './types';
 
-function configuredUsers(): string[] {
-	return PUBLIC_TIMETOWER_USERS.split(',')
-		.map((user) => user.trim())
-		.filter(Boolean);
-}
-
 /**
- * Build a service from public environment configuration.
+ * Build the service for the current Vite mode.
  *
- * - `PUBLIC_TIMETOWER_MODE=mock` (default) uses in-memory fixtures.
- * - `PUBLIC_TIMETOWER_MODE=http` talks to the API, usually through the
- *   same-origin proxy so the bearer key stays server-side.
+ * `npm run mock` starts Vite in `mock` mode and uses in-memory fixtures. Every
+ * other mode talks to the same-origin Timetower API.
  */
 export function createTimetowerService(): TimetowerService {
-	const mode = PUBLIC_TIMETOWER_MODE.trim().toLowerCase();
-	if (mode === 'http' || mode === 'live') {
-		return new HttpTimetowerService({
-			baseUrl: PUBLIC_TIMETOWER_API_URL,
-			token: PUBLIC_TIMETOWER_API_TOKEN,
-			users: configuredUsers()
-		});
-	}
-	return new MockTimetowerService();
+	return import.meta.env.MODE === 'mock' ? new MockTimetowerService() : new HttpTimetowerService();
 }
 
 let instance: TimetowerService | null = null;
