@@ -80,6 +80,8 @@ spec:
             - /var/lib/timetower/config.json
             - -state
             - /var/lib/timetower/usage.csv
+            - -web
+            - /usr/share/timetower/web
           readinessProbe:
             tcpSocket:
               port: http

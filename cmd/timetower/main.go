@@ -13,12 +13,14 @@ import (
 	_ "time/tzdata"
 
 	"timelord/internal/timetower"
+	"timelord/internal/webui"
 )
 
 func main() {
 	listen := flag.String("listen", "0.0.0.0:8080", "address for the Timetower API")
 	configPath := flag.String("config", "timetower.json", "path to the Timetower configuration file")
 	statePath := flag.String("state", "timetower-usage.csv", "path to the persisted state CSV (usage and overrides)")
+	webRoot := flag.String("web", "", "path to the built admin UI (optional)")
 	flag.Parse()
 
 	config, err := timetower.LoadConfig(*configPath)
@@ -44,9 +46,20 @@ func main() {
 	store.Prune(cutoff)
 
 	api := timetower.NewServer(config, store, enforcerKey, adminPassword)
+
+	handler := http.Handler(api)
+	if *webRoot != "" {
+		web, err := webui.NewHandler(*webRoot)
+		if err != nil {
+			log.Fatalf("timetower: web UI: %v", err)
+		}
+		handler = webui.WithAPI(api, api.AdminOnly(web))
+		log.Printf("serving admin UI from %s", *webRoot)
+	}
+
 	httpServer := &http.Server{
 		Addr:              *listen,
-		Handler:           api,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

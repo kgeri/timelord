@@ -28,6 +28,18 @@ Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with
 `./deploy-timetower.sh` (targets `srvu` by default). The API is documented in
 [docs/Timetower.md](docs/Timetower.md) and [docs/openapi.yaml](docs/openapi.yaml).
 
+The admin UI in [gui](gui) is built to `gui/build` and served by the same
+binary. The UI and its assets are protected by the admin Basic auth:
+
+```sh
+(cd gui && npm ci && npm run build)
+TIMELORD_ENFORCER_KEY=... TIMELORD_ADMIN_PASSWORD=... \
+  ./timetower -config timetower.json -state timetower-usage.csv -web gui/build
+# open https://.../ and sign in as admin
+```
+
+The Docker image builds the UI automatically.
+
 ## Build and run
 
 The Enforcer daemon is built from `cmd/timelord`:

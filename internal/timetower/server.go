@@ -138,6 +138,24 @@ func (s *Server) forbidden(w http.ResponseWriter) {
 	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
+// AdminOnly wraps next with the admin Basic auth check. It is used for the
+// static admin UI, while the API handler performs its own per-endpoint checks.
+func (s *Server) AdminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "Authorization")
+		p, ok := s.authenticate(r)
+		if !ok {
+			s.unauthorized(w, adminRealm)
+			return
+		}
+		if !p.isAdmin() {
+			s.forbidden(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // authenticate resolves HTTP Basic credentials to a principal. The username is
 // the role selector; unknown usernames and wrong passwords are both rejected.
 func (s *Server) authenticate(r *http.Request) (principal, bool) {

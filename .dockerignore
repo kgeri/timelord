@@ -9,3 +9,6 @@
 /timetower.json
 /timetower-state.json
 /timetower-usage.csv
+/gui/node_modules
+/gui/.svelte-kit
+/gui/build

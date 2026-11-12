@@ -260,6 +260,28 @@ Usage rows fill `hostname` and `used_seconds`; override rows leave those empty
 and fill the override columns. Files with the older four-column usage-only
 header still load. Usage and overrides are retained for 400 days.
 
+## Admin UI
+
+Timetower can serve the static SvelteKit admin UI from the same origin as the
+API. Build it with:
+
+```sh
+cd gui
+npm ci
+npm run build
+```
+
+Then start Timetower with `-web` pointing at the generated directory:
+
+```sh
+./timetower -config timetower.json -state timetower-usage.csv -web gui/build
+```
+
+All non-`/api` requests are protected by the admin Basic auth. The browser
+prompts for credentials on the first request, then reuses them for the API
+calls made by the UI. The Docker image builds the UI and points `-web` at
+`/usr/share/timetower/web`.
+
 ## Deployment
 
 `deploy-timetower.sh` seeds `/data/hosted/timetower/config.json` on `srvu`
@@ -270,7 +292,8 @@ existing config with the default.
 
 The script also creates/updates the `timetower-secrets` Kubernetes Secret from
 `secrets.env`. The Deployment reads `TIMELORD_ENFORCER_KEY` and
-`TIMELORD_ADMIN_PASSWORD` from that Secret as environment variables.
+`TIMELORD_ADMIN_PASSWORD` from that Secret as environment variables. The image
+includes the admin UI and serves it from `/`.
 
 The Deployment is pinned to `srvu` so its hostPath volumes are always on the
 same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override
