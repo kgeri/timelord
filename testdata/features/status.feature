@@ -55,6 +55,12 @@ Feature: Status reporting
       | hostname |            |
     Then the response status is 422
 
+  Scenario: Admin credentials cannot report status
+    When the admin reports:
+      | day  | 2024-06-03 |
+      | used | 100        |
+    Then the response status is 403
+
   Scenario: Unknown users cannot report
     When the enforcer reports:
       | user | other      |

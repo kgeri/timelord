@@ -14,6 +14,7 @@ import (
 
 func registerOverrideSteps(sc *godog.ScenarioContext, w *apiWorld) {
 	sc.Step(`^the admin sets the override:$`, w.adminSetsOverride)
+	sc.Step(`^the enforcer submits an override:$`, w.enforcerSetsOverride)
 	sc.Step(`^the admin submits an unauthenticated override:$`, w.adminSubmitsUnauthenticatedOverride)
 	sc.Step(`^the admin submits a (PUT|POST) override file "([^"]*)" for user "([^"]*)"$`, w.adminSubmitsOverrideFile)
 	sc.Step(`^the override is:$`, w.overrideIs)
@@ -37,7 +38,15 @@ func (w *apiWorld) adminSetsOverride(tbl *godog.Table) error {
 	if err != nil {
 		return err
 	}
-	return w.submit(http.MethodPut, "/api/v1/override/dani", body, authBearer)
+	return w.submit(http.MethodPut, "/api/v1/override/dani", body, authAdmin)
+}
+
+func (w *apiWorld) enforcerSetsOverride(tbl *godog.Table) error {
+	body, err := overrideBody(tbl)
+	if err != nil {
+		return err
+	}
+	return w.submit(http.MethodPut, "/api/v1/override/dani", body, authEnforcer)
 }
 
 func (w *apiWorld) adminSubmitsUnauthenticatedOverride(tbl *godog.Table) error {
@@ -53,7 +62,7 @@ func (w *apiWorld) adminSubmitsOverrideFile(method, fixture, user string) error 
 	if err != nil {
 		return fmt.Errorf("read override fixture %q: %w", fixture, err)
 	}
-	return w.submit(method, "/api/v1/override/"+user, body, authBearer)
+	return w.submit(method, "/api/v1/override/"+user, body, authAdmin)
 }
 
 func overrideBody(tbl *godog.Table) ([]byte, error) {

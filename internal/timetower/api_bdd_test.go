@@ -13,12 +13,17 @@ import (
 	"github.com/cucumber/godog"
 )
 
-const testKey = "test-key"
+const (
+	testEnforcerKey   = "test-enforcer-key"
+	testAdminPassword = "test-admin-password"
+)
 
 const (
-	authNone   = ""
-	authBearer = "bearer"
-	authWrong  = "wrong"
+	authNone          = ""
+	authEnforcer      = "enforcer"
+	authEnforcerWrong = "enforcer-wrong"
+	authAdmin         = "admin"
+	authAdminWrong    = "admin-wrong"
 )
 
 // TestAPIFeatures runs the Timetower HTTP behavior specs from testdata/features.
@@ -49,6 +54,7 @@ type apiWorld struct {
 	schedule  Schedule
 	status    StatusResponse
 	listing   EnforcerList
+	users     UserList
 	revisions map[string]string
 }
 
@@ -69,6 +75,7 @@ func initializeAPIScenario(sc *godog.ScenarioContext) {
 	registerScheduleSteps(sc, w)
 	registerStatusSteps(sc, w)
 	registerListingSteps(sc, w)
+	registerUsersSteps(sc, w)
 	registerOverrideSteps(sc, w)
 }
 
@@ -112,7 +119,7 @@ func (w *apiWorld) startServerWithStore(configFile, timestamp, statePath string)
 	if err != nil {
 		return fmt.Errorf("new store: %w", err)
 	}
-	server := NewServer(config, store, testKey)
+	server := NewServer(config, store, testEnforcerKey, testAdminPassword)
 	server.now = func() time.Time { return w.now }
 	w.server, w.config, w.store, w.now = server, config, store, now
 	w.revisions = make(map[string]string)
@@ -127,7 +134,7 @@ func (w *apiWorld) restartServer() error {
 	if err != nil {
 		return fmt.Errorf("reload store: %w", err)
 	}
-	server := NewServer(w.config, store, testKey)
+	server := NewServer(w.config, store, testEnforcerKey, testAdminPassword)
 	server.now = func() time.Time { return w.now }
 	w.server, w.store = server, store
 	return nil
@@ -205,10 +212,14 @@ func (w *apiWorld) submit(method, path string, body []byte, authorization string
 	}
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	switch authorization {
-	case authBearer:
-		req.Header.Set("Authorization", "Bearer "+testKey)
-	case authWrong:
-		req.Header.Set("Authorization", "Bearer wrong")
+	case authEnforcer:
+		req.SetBasicAuth(enforcerUsername, testEnforcerKey)
+	case authEnforcerWrong:
+		req.SetBasicAuth(enforcerUsername, "wrong")
+	case authAdmin:
+		req.SetBasicAuth(adminUsername, testAdminPassword)
+	case authAdminWrong:
+		req.SetBasicAuth(adminUsername, "wrong")
 	}
 	rec := httptest.NewRecorder()
 	w.server.ServeHTTP(rec, req)

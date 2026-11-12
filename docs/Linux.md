@@ -4,7 +4,7 @@
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo env TIMELORD_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani
+sudo env TIMELORD_ENFORCER_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani
 ```
 
 TimeLord must run as root to read the executable path and memory of other
@@ -34,7 +34,7 @@ sudo ./deploy-enforcer-linux.sh [user@]host
 sudo ./deploy-enforcer-linux.sh --uninstall [user@]host
 ```
 
-The deploy script reads `secrets.env` for `TIMELORD_KEY`, installs
+The deploy script reads `secrets.env` for `TIMELORD_ENFORCER_KEY`, installs
 `/etc/timelord.env` with mode `0600`, and the systemd unit loads it with
 `EnvironmentFile`. Set `TIMETOWER_URL` to override the default
 `https://timetower.ogreg.org`; set `TIMELORD_USERS` to override the default

@@ -110,7 +110,7 @@ Feature: Daily overrides
       | limit_minutes | 15              |
       | window        | mon 00:00-23:59 |
     When the server clock advances to "2024-06-04T10:00:00Z"
-    And the admin requests the schedule for "dani"
+    And the admin requests the schedule with admin credentials for "dani"
     Then the schedule is:
       | daily_limit_seconds | 0 |
 
@@ -161,6 +161,11 @@ Feature: Daily overrides
     When the admin submits an unauthenticated override:
       | limit_minutes | 15 |
     Then the response status is 401
+
+  Scenario: Enforcer credentials cannot set overrides
+    When the enforcer submits an override:
+      | limit_minutes | 15 |
+    Then the response status is 403
 
   Scenario Outline: Invalid overrides are rejected
     Given a Timetower server with configuration "<config>" at "2024-06-03T10:00:00Z"

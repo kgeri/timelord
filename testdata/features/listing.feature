@@ -4,16 +4,24 @@ Feature: Enforcer listing
   Background:
     Given a Timetower server with configuration "config/valid.json" at "2024-06-03T10:00:00Z"
 
-  Scenario: The listing is public and empty before any report
-    When anyone requests the enforcer listing
+  Scenario: The listing is empty before any report
+    When the admin requests the enforcer listing
     Then the response status is 200
     And the listing has no enforcers
+
+  Scenario: The listing requires admin authentication
+    When the enforcer listing is requested without credentials
+    Then the response status is 401
+
+  Scenario: Enforcer credentials cannot read the admin listing
+    When the enforcer requests the enforcer listing with its key
+    Then the response status is 403
 
   Scenario: A reporting enforcer appears in the listing
     When the enforcer reports:
       | day  | 2024-06-03 |
       | used | 1200       |
-    And anyone requests the enforcer listing
+    And the admin requests the enforcer listing
     Then the response status is 200
     And the listing is:
       | hostname          | test-host |
@@ -28,7 +36,7 @@ Feature: Enforcer listing
       | day  | 2024-06-03 |
       | used | 1200       |
     And the server checks for heartbeat timeouts after "4m"
-    And anyone requests the enforcer listing
+    And the admin requests the enforcer listing
     Then the listing is:
       | hostname  | test-host |
       | online    | false     |

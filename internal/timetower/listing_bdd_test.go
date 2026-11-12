@@ -11,13 +11,23 @@ import (
 )
 
 func registerListingSteps(sc *godog.ScenarioContext, w *apiWorld) {
-	sc.Step(`^anyone requests the enforcer listing$`, w.requestListing)
+	sc.Step(`^the admin requests the enforcer listing$`, w.requestListing)
+	sc.Step(`^the enforcer listing is requested without credentials$`, w.requestListingWithoutCredentials)
+	sc.Step(`^the enforcer requests the enforcer listing with its key$`, w.requestListingAsEnforcer)
 	sc.Step(`^the listing has no enforcers$`, w.listingIsEmpty)
 	sc.Step(`^the listing is:$`, w.listingIs)
 }
 
 func (w *apiWorld) requestListing() error {
+	return w.submit(http.MethodGet, "/api/v1/enforcers", nil, authAdmin)
+}
+
+func (w *apiWorld) requestListingWithoutCredentials() error {
 	return w.submit(http.MethodGet, "/api/v1/enforcers", nil, authNone)
+}
+
+func (w *apiWorld) requestListingAsEnforcer() error {
+	return w.submit(http.MethodGet, "/api/v1/enforcers", nil, authEnforcer)
 }
 
 func (w *apiWorld) listingIsEmpty() error {
@@ -79,7 +89,7 @@ func (w *apiWorld) listingIs(tbl *godog.Table) error {
 }
 
 func (w *apiWorld) fetchListing() error {
-	if err := w.submit(http.MethodGet, "/api/v1/enforcers", nil, authNone); err != nil {
+	if err := w.submit(http.MethodGet, "/api/v1/enforcers", nil, authAdmin); err != nil {
 		return err
 	}
 	if w.rec.Code != http.StatusOK {

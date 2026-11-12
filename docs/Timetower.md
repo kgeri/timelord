@@ -4,8 +4,8 @@ Timetower is the central REST service for TimeLord. Enforcers are per-host
 daemons that measure active time and enforce the schedule that Timetower
 provides.
 
-Timetower identifies users by account name. Enforcers authenticate with a shared
-bearer key and report their own hostname for usage aggregation and listing.
+Timetower identifies users by account name. Enforcers authenticate with HTTP
+Basic auth and report their own hostname for usage aggregation and listing.
 Source IP addresses and ingress forwarding headers are not used.
 
 Schedules, usage, and status are stored by Timetower. Enforcers do not use
@@ -19,7 +19,7 @@ The API contract is in [openapi.yaml](openapi.yaml).
 |-----------|----------------|
 | Timetower | Central REST service. Stores users, policies, usage, and the latest status per hostname. |
 | Enforcer | Per-host daemon. Fetches user schedules, reads sessions and processes, applies policy locally, terminates denied local sessions, reports status. |
-| Operator | Maintains Timetower's static configuration and the shared key. |
+| Operator | Maintains Timetower's static configuration and credentials. |
 
 ## Static configuration
 
@@ -55,26 +55,40 @@ Enforcer-to-account mapping.
 
 ## Authentication
 
-The Timetower API uses one shared bearer key:
+Every client uses HTTP Basic auth. The username determines the role:
+
+| Username | Password | Role |
+|---|---|---|
+| `admin` | `TIMELORD_ADMIN_PASSWORD` | Admin console |
+| `enforcer` | `TIMELORD_ENFORCER_KEY` | Enforcers |
 
 ```http
-Authorization: Bearer <TIMELORD_KEY>
+Authorization: Basic base64(admin:<TIMELORD_ADMIN_PASSWORD>)
+Authorization: Basic base64(enforcer:<TIMELORD_ENFORCER_KEY>)
 ```
 
-The schedule, status, and override endpoints require the key. The
-`GET /api/v1/enforcers` listing is public for now; access to an admin UI will
-be guarded separately later.
+`GET /api/v1/schedule/{user}` accepts both roles because Enforcers and the admin
+console both need it. `PUT /api/v1/status/{user}` accepts only the Enforcer
+username. The override, enforcer-listing, and user-listing endpoints accept only
+the admin username.
 
-The key is distributed through `secrets.env`:
+Missing or invalid credentials return `401` with a `WWW-Authenticate: Basic`
+challenge, which makes browsers prompt. Valid credentials for the wrong role
+return `403`.
+
+Both passwords are distributed through `secrets.env`:
 
 ```sh
-TIMELORD_KEY=...
+TIMELORD_ENFORCER_KEY=...
+TIMELORD_ADMIN_PASSWORD=...
 ```
 
 `secrets.env` must be mode `0600` or `0400` and is gitignored.
 
-The key is shared across all Enforcers. Any holder can fetch or report any user.
-Per-user keys would be required to isolate Enforcers from each other.
+The Enforcer password is shared across all Enforcers. Any holder can fetch or
+report any user. Per-Enforcer usernames would be required to isolate Enforcers
+from each other. Use TLS everywhere because Basic auth sends the password with
+every request.
 
 ## Model
 
@@ -105,7 +119,7 @@ editing the static configuration:
 
 ```sh
 curl -X PUT https://timetower.ogreg.org/api/v1/override/dani \
-  -H "Authorization: Bearer $TIMELORD_KEY" \
+  -u "admin:$TIMELORD_ADMIN_PASSWORD" \
   -H 'Content-Type: application/json' \
   -d '{"start": "10:00", "end": "18:00", "limit_minutes": 15}'
 ```
@@ -165,7 +179,7 @@ lost after three status intervals.
 
 ## Enforcer lifecycle
 
-1. The Enforcer starts with its Timetower URL, shared key, hostname, and list of
+1. The Enforcer starts with its Timetower URL, Enforcer key, hostname, and list of
    managed users.
 2. It fetches each user's schedule from `GET /api/v1/schedule/{user}`. A failed
    initial fetch is a startup failure.
@@ -220,10 +234,11 @@ charging suspend or stall time.
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| `GET` | `/api/v1/schedule/{user}` | bearer key | Fetch one user's policy, usage, and remaining time. |
-| `PUT` | `/api/v1/status/{user}` | bearer key | Report usage, session state, and process statistics. |
-| `PUT` | `/api/v1/override/{user}` | bearer key | Override the current day's window and/or limit. |
-| `GET` | `/api/v1/enforcers` | public | List reporting hostnames, online state, last contact, and remaining time. |
+| `GET` | `/api/v1/schedule/{user}` | Basic (`admin` or `enforcer`) | Fetch one user's policy, usage, and remaining time. |
+| `PUT` | `/api/v1/status/{user}` | Basic (`enforcer`) | Report usage, session state, and process statistics. |
+| `PUT` | `/api/v1/override/{user}` | Basic (`admin`) | Override the current day's window and/or limit. |
+| `GET` | `/api/v1/enforcers` | Basic (`admin`) | List reporting hostnames, online state, last contact, and remaining time. |
+| `GET` | `/api/v1/users` | Basic (`admin`) | List configured accounts and display names for the admin console. |
 
 Both schedule and status success responses carry `X-Schedule-Revision`.
 Override responses also carry it. The Enforcer remembers the value from the
@@ -254,8 +269,8 @@ pushes the Timetower image, and applies the Kubernetes manifests in
 existing config with the default.
 
 The script also creates/updates the `timetower-secrets` Kubernetes Secret from
-`secrets.env`. The Deployment reads `TIMELORD_KEY` from that Secret as an
-environment variable.
+`secrets.env`. The Deployment reads `TIMELORD_ENFORCER_KEY` and
+`TIMELORD_ADMIN_PASSWORD` from that Secret as environment variables.
 
 The Deployment is pinned to `srvu` so its hostPath volumes are always on the
 same node. Pass a `[user@]host` argument or set `TIMETOWER_HOST` to override

@@ -25,9 +25,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("timetower: load config: %v", err)
 	}
-	key := os.Getenv("TIMELORD_KEY")
-	if key == "" {
-		log.Fatal("timetower: TIMELORD_KEY is not set")
+	enforcerKey := os.Getenv("TIMELORD_ENFORCER_KEY")
+	if enforcerKey == "" {
+		log.Fatal("timetower: TIMELORD_ENFORCER_KEY is not set")
+	}
+	adminPassword := os.Getenv("TIMELORD_ADMIN_PASSWORD")
+	if adminPassword == "" {
+		log.Fatal("timetower: TIMELORD_ADMIN_PASSWORD is not set")
 	}
 
 	store, err := timetower.NewStore(*statePath)
@@ -39,7 +43,7 @@ func main() {
 	cutoff := time.Now().In(config.Location()).AddDate(0, 0, -400).Format("2006-01-02")
 	store.Prune(cutoff)
 
-	api := timetower.NewServer(config, store, key)
+	api := timetower.NewServer(config, store, enforcerKey, adminPassword)
 	httpServer := &http.Server{
 		Addr:              *listen,
 		Handler:           api,

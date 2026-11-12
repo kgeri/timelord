@@ -64,9 +64,9 @@ func main() {
 		if len(users) == 0 {
 			return fmt.Errorf("no -user option given")
 		}
-		key := os.Getenv("TIMELORD_KEY")
-		if key == "" {
-			return fmt.Errorf("TIMELORD_KEY is not set")
+		enforcerKey := os.Getenv("TIMELORD_ENFORCER_KEY")
+		if enforcerKey == "" {
+			return fmt.Errorf("TIMELORD_ENFORCER_KEY is not set")
 		}
 		hostname := strings.TrimSpace(os.Getenv("TIMELORD_HOSTNAME"))
 		if hostname == "" {
@@ -78,7 +78,7 @@ func main() {
 		}
 
 		agent := enforcer.New(enforcer.Config{
-			Client:    timetower.NewClient(*timetowerURL, enforcerVersion, key),
+			Client:    timetower.NewClient(*timetowerURL, enforcerVersion, enforcerKey),
 			Sessions:  sessionSource,
 			Processes: cache,
 			Version:   enforcerVersion,

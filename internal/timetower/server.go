@@ -23,64 +23,146 @@ import (
 
 const maxStatusBytes = 8 << 20
 
+const (
+	adminUsername    = "admin"
+	enforcerUsername = "enforcer"
+
+	scheduleRealm = `Basic realm="Timetower"`
+	adminRealm    = `Basic realm="Timetower Admin"`
+	enforcerRealm = `Basic realm="Timetower Enforcer"`
+)
+
+type principalKind int
+
+const (
+	principalAdmin principalKind = iota
+	principalEnforcer
+)
+
+type principal struct {
+	username string
+	kind     principalKind
+}
+
+func (p principal) isAdmin() bool {
+	return p.kind == principalAdmin
+}
+
+func (p principal) isEnforcer() bool {
+	return p.kind == principalEnforcer
+}
+
 // Server serves the Timetower REST API.
 type Server struct {
-	cfg   *Config
-	store *Store
-	key   string
-	now   func() time.Time
-	mux   *http.ServeMux
+	cfg              *Config
+	store            *Store
+	enforcerPassword string
+	adminPassword    string
+	now              func() time.Time
+	mux              *http.ServeMux
 
 	mu       sync.Mutex
 	lastSeen map[string]time.Time
 	online   map[string]bool
 }
 
-// NewServer returns a Timetower API server. key is the shared bearer key.
-func NewServer(cfg *Config, store *Store, key string) *Server {
+// NewServer returns a Timetower API server. enforcerPassword is the Basic auth
+// password for the Enforcer username; adminPassword is the Basic auth password
+// for the admin username.
+func NewServer(cfg *Config, store *Store, enforcerPassword, adminPassword string) *Server {
 	s := &Server{
-		cfg:      cfg,
-		store:    store,
-		key:      key,
-		now:      time.Now,
-		lastSeen: make(map[string]time.Time),
-		online:   make(map[string]bool),
+		cfg:              cfg,
+		store:            store,
+		enforcerPassword: enforcerPassword,
+		adminPassword:    adminPassword,
+		now:              time.Now,
+		lastSeen:         make(map[string]time.Time),
+		online:           make(map[string]bool),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/schedule/", s.handleSchedule)
 	mux.HandleFunc("/api/v1/status/", s.handleStatus)
 	mux.HandleFunc("/api/v1/override/", s.handleOverride)
 	mux.HandleFunc("/api/v1/enforcers", s.handleEnforcers)
+	mux.HandleFunc("/api/v1/users", s.handleUsers)
 	s.mux = mux
 	return s
 }
 
-// ServeHTTP implements http.Handler. The schedule, status, and override
-// endpoints require the shared bearer key; the Enforcer listing is public for
-// now.
+// ServeHTTP implements http.Handler. Every client uses HTTP Basic auth; the
+// username determines whether it is an admin or an Enforcer. The schedule
+// endpoint accepts both roles.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/v1/schedule/") ||
-		strings.HasPrefix(r.URL.Path, "/api/v1/status/") ||
-		strings.HasPrefix(r.URL.Path, "/api/v1/override/") {
-		if !s.authorized(r) {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/api/v1/schedule/"):
+		p, ok := s.authenticate(r)
+		if !ok {
+			s.unauthorized(w, scheduleRealm)
+			return
+		}
+		if !p.isAdmin() && !p.isEnforcer() {
+			s.forbidden(w)
+			return
+		}
+	case strings.HasPrefix(r.URL.Path, "/api/v1/status/"):
+		p, ok := s.authenticate(r)
+		if !ok {
+			s.unauthorized(w, enforcerRealm)
+			return
+		}
+		if !p.isEnforcer() {
+			s.forbidden(w)
+			return
+		}
+	case strings.HasPrefix(r.URL.Path, "/api/v1/override/"),
+		r.URL.Path == "/api/v1/enforcers", r.URL.Path == "/api/v1/users":
+		p, ok := s.authenticate(r)
+		if !ok {
+			s.unauthorized(w, adminRealm)
+			return
+		}
+		if !p.isAdmin() {
+			s.forbidden(w)
 			return
 		}
 	}
 	s.mux.ServeHTTP(w, r)
 }
 
-func (s *Server) authorized(r *http.Request) bool {
-	if s.key == "" {
-		return false
+func (s *Server) unauthorized(w http.ResponseWriter, challenge string) {
+	w.Header().Set("WWW-Authenticate", challenge)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
+}
+
+func (s *Server) forbidden(w http.ResponseWriter) {
+	http.Error(w, "forbidden", http.StatusForbidden)
+}
+
+// authenticate resolves HTTP Basic credentials to a principal. The username is
+// the role selector; unknown usernames and wrong passwords are both rejected.
+func (s *Server) authenticate(r *http.Request) (principal, bool) {
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		return principal{}, false
 	}
-	header := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return false
+
+	var expected string
+	var kind principalKind
+	switch username {
+	case adminUsername:
+		expected, kind = s.adminPassword, principalAdmin
+	case enforcerUsername:
+		expected, kind = s.enforcerPassword, principalEnforcer
+	default:
+		return principal{}, false
 	}
-	return subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(header, prefix)), []byte(s.key)) == 1
+	if expected == "" {
+		return principal{}, false
+	}
+	if subtle.ConstantTimeCompare([]byte(password), []byte(expected)) != 1 {
+		return principal{}, false
+	}
+	return principal{username: username, kind: kind}, true
 }
 
 func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
@@ -340,6 +422,21 @@ func (s *Server) handleEnforcers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.enforcerList(s.now().UTC()))
+}
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	users := make([]UserInfo, 0, len(s.cfg.Users))
+	for i := range s.cfg.Users {
+		user := &s.cfg.Users[i]
+		users = append(users, UserInfo{User: user.Name, DisplayName: user.DisplayName})
+	}
+	writeJSON(w, http.StatusOK, UserList{Users: users})
 }
 
 // Monitor logs Enforcer connection and heartbeat-loss transitions.

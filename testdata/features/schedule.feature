@@ -5,7 +5,7 @@ Feature: Schedule
     Given a Timetower server with configuration "config/valid.json" at "2024-06-03T10:00:00Z"
 
   Scenario: The schedule describes the user's day
-    When the admin requests the schedule for "dani"
+    When the enforcer requests the schedule for "dani"
     Then the response status is 200
     And the response header "X-Schedule-Revision" is not empty
     And the schedule is:
@@ -17,6 +17,12 @@ Feature: Schedule
       | remaining_seconds   | 3600            |
       | daily_limit_seconds | 3600            |
       | window              | mon 00:00-23:59 |
+
+  Scenario: The admin fetches the schedule with Basic auth
+    When the admin requests the schedule with admin credentials for "dani"
+    Then the response status is 200
+    And the schedule is:
+      | user | dani |
 
   Scenario: Daily limits follow the weekday
     Given a Timetower server with configuration "config/per-day.json" at "2024-06-03T10:00:00Z"
@@ -36,20 +42,20 @@ Feature: Schedule
       | daily_limit_seconds | 5400 |
       | remaining_seconds   | 4800 |
 
-  Scenario Outline: The schedule requires the shared key
-    When the admin requests the schedule for "dani" <auth>
+  Scenario Outline: The schedule requires credentials
+    When the enforcer requests the schedule for "dani" <auth>
     Then the response status is 401
 
     Examples:
       | auth                |
       | without credentials |
-      | with the wrong key  |
+      | with the wrong password |
 
   Scenario: Unknown users have no schedule
-    When the admin requests the schedule for "other"
+    When the enforcer requests the schedule for "other"
     Then the response status is 404
 
   Scenario: The schedule endpoint only accepts GET
-    When the admin sends a POST to the schedule for "dani"
+    When the enforcer sends a POST to the schedule for "dani"
     Then the response status is 405
     And the Allow header is "GET"

@@ -14,6 +14,7 @@ import (
 
 func registerStatusSteps(sc *godog.ScenarioContext, w *apiWorld) {
 	sc.Step(`^the enforcer reports:$`, w.enforcerReports)
+	sc.Step(`^the admin reports:$`, w.adminReports)
 	sc.Step(`^the enforcer submits report file "([^"]*)" for user "([^"]*)"$`, w.enforcerSubmitsReportFile)
 	sc.Step(`^the status is:$`, w.statusIs)
 	sc.Step(`^the status has a revision$`, w.statusHasRevision)
@@ -27,6 +28,14 @@ type reportInput struct {
 }
 
 func (w *apiWorld) enforcerReports(tbl *godog.Table) error {
+	return w.reportStatus(tbl, authEnforcer)
+}
+
+func (w *apiWorld) adminReports(tbl *godog.Table) error {
+	return w.reportStatus(tbl, authAdmin)
+}
+
+func (w *apiWorld) reportStatus(tbl *godog.Table, authorization string) error {
 	var input reportInput
 	if err := gherkin.DecodeTable(tbl, &input); err != nil {
 		return err
@@ -53,7 +62,7 @@ func (w *apiWorld) enforcerReports(tbl *godog.Table) error {
 
 	w.status = StatusResponse{}
 	w.statusRec = nil
-	if err := w.submit(http.MethodPut, "/api/v1/status/"+user, body, authBearer); err != nil {
+	if err := w.submit(http.MethodPut, "/api/v1/status/"+user, body, authorization); err != nil {
 		return err
 	}
 	w.statusRec = w.rec
@@ -72,7 +81,7 @@ func (w *apiWorld) enforcerSubmitsReportFile(fixture, user string) error {
 	}
 	w.status = StatusResponse{}
 	w.statusRec = nil
-	if err := w.submit(http.MethodPut, "/api/v1/status/"+user, body, authBearer); err != nil {
+	if err := w.submit(http.MethodPut, "/api/v1/status/"+user, body, authEnforcer); err != nil {
 		return err
 	}
 	w.statusRec = w.rec

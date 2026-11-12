@@ -15,26 +15,31 @@ func registerScheduleSteps(sc *godog.ScenarioContext, w *apiWorld) {
 	sc.Step(`^the current schedule revision is recorded as "([^"]*)"$`, w.recordRevision)
 	sc.Step(`^the schedule revision is still "([^"]*)"$`, w.revisionIsStill)
 	sc.Step(`^the schedule revision differs from "([^"]*)"$`, w.revisionDiffers)
-	sc.Step(`^the admin requests the schedule for "([^"]*)"$`, w.requestSchedule)
-	sc.Step(`^the admin requests the schedule for "([^"]*)" (without credentials|with the wrong key)$`, w.requestScheduleWithAuth)
-	sc.Step(`^the admin sends a POST to the schedule for "([^"]*)"$`, w.postSchedule)
+	sc.Step(`^the enforcer requests the schedule for "([^"]*)"$`, w.requestSchedule)
+	sc.Step(`^the admin requests the schedule with admin credentials for "([^"]*)"$`, w.requestScheduleAsAdmin)
+	sc.Step(`^the enforcer requests the schedule for "([^"]*)" (without credentials|with the wrong password)$`, w.requestScheduleWithAuth)
+	sc.Step(`^the enforcer sends a POST to the schedule for "([^"]*)"$`, w.postSchedule)
 	sc.Step(`^the schedule is:$`, w.scheduleIs)
 }
 
 func (w *apiWorld) requestSchedule(user string) error {
-	return w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authBearer)
+	return w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authEnforcer)
+}
+
+func (w *apiWorld) requestScheduleAsAdmin(user string) error {
+	return w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authAdmin)
 }
 
 func (w *apiWorld) requestScheduleWithAuth(user, credentials string) error {
 	authorization := authNone
-	if credentials == "with the wrong key" {
-		authorization = authWrong
+	if credentials == "with the wrong password" {
+		authorization = authEnforcerWrong
 	}
 	return w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authorization)
 }
 
 func (w *apiWorld) postSchedule(user string) error {
-	return w.submit(http.MethodPost, "/api/v1/schedule/"+user, nil, authBearer)
+	return w.submit(http.MethodPost, "/api/v1/schedule/"+user, nil, authEnforcer)
 }
 
 func (w *apiWorld) recordRevision(label string) error {
@@ -131,7 +136,7 @@ func (w *apiWorld) scheduleIs(tbl *godog.Table) error {
 }
 
 func (w *apiWorld) fetchSchedule(user string) error {
-	if err := w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authBearer); err != nil {
+	if err := w.submit(http.MethodGet, "/api/v1/schedule/"+user, nil, authEnforcer); err != nil {
 		return err
 	}
 	if w.rec.Code != http.StatusOK {

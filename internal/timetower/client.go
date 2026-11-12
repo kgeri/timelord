@@ -15,19 +15,19 @@ import (
 
 // Client is the Enforcer-side Timetower API client.
 type Client struct {
-	baseURL string
-	version string
-	key     string
-	http    *http.Client
+	baseURL  string
+	version  string
+	password string
+	http     *http.Client
 }
 
 // NewClient returns a client for the Timetower server at baseURL.
-func NewClient(baseURL, version, key string) *Client {
+func NewClient(baseURL, version, password string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		version: version,
-		key:     key,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		version:  version,
+		password: password,
+		http:     &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -67,7 +67,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) (in
 		return 0, fmt.Errorf("timetower: create request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Authorization", "Bearer "+c.key)
+	request.SetBasicAuth(enforcerUsername, c.password)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}

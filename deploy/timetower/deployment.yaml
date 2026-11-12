@@ -63,11 +63,16 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            - name: TIMELORD_KEY
+            - name: TIMELORD_ENFORCER_KEY
               valueFrom:
                 secretKeyRef:
                   name: timetower-secrets
-                  key: TIMELORD_KEY
+                  key: TIMELORD_ENFORCER_KEY
+            - name: TIMELORD_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timetower-secrets
+                  key: TIMELORD_ADMIN_PASSWORD
           args:
             - -listen
             - 0.0.0.0:8080

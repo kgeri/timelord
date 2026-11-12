@@ -17,8 +17,9 @@ func TestClientFetchSchedule(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
-			t.Errorf("Authorization = %q, want bearer key", got)
+		username, password, ok := r.BasicAuth()
+		if !ok || username != enforcerUsername || password != "test-key" {
+			t.Errorf("Basic auth = (%q, %q, %v), want enforcer/test-key", username, password, ok)
 		}
 		if got := r.UserAgent(); got != "timelord-enforcer/test" {
 			t.Errorf("User-Agent = %q, want timelord-enforcer/test", got)
@@ -49,8 +50,9 @@ func TestClientSendStatus(t *testing.T) {
 		if r.Method != http.MethodPut {
 			t.Errorf("method = %q, want PUT", r.Method)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
-			t.Errorf("Authorization = %q, want bearer key", got)
+		username, password, ok := r.BasicAuth()
+		if !ok || username != enforcerUsername || password != "test-key" {
+			t.Errorf("Basic auth = (%q, %q, %v), want enforcer/test-key", username, password, ok)
 		}
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Errorf("Content-Type = %q, want application/json", got)

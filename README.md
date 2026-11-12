@@ -12,13 +12,16 @@ replaces an earlier .NET app.
 ## Timetower
 
 Timetower is the central REST service for Enforcers. It identifies users by
-account name. Enforcers authenticate with the shared `TIMELORD_KEY`.
+account name. All clients use HTTP Basic auth: Enforcers use the `enforcer`
+username with `TIMELORD_ENFORCER_KEY`, and the admin console uses the `admin`
+username with `TIMELORD_ADMIN_PASSWORD`.
 
 ```sh
 cp deploy/timetower/config-default.json timetower.json
 # Edit the users and policies in timetower.json.
 go build -o timetower ./cmd/timetower
-TIMELORD_KEY=... ./timetower -config timetower.json -state timetower-usage.csv
+TIMELORD_ENFORCER_KEY=... TIMELORD_ADMIN_PASSWORD=... \
+  ./timetower -config timetower.json -state timetower-usage.csv
 ```
 
 Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with
@@ -31,7 +34,7 @@ The Enforcer daemon is built from `cmd/timelord`:
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo env TIMELORD_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani
+sudo env TIMELORD_ENFORCER_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani
 curl http://127.0.0.1:9220/metrics
 ```
 
@@ -51,11 +54,12 @@ at the interval Timetower provides. Timetower is the source of truth; the
 Enforcer reads no schedule or usage files from user home directories.
 
 On Linux, denied local sessions are logged out via `systemd-logind`; remote
-sessions such as SSH are ignored. The public status listing is available from:
+sessions such as SSH are ignored. The admin listing is available with the admin
+Basic credentials:
 
 ```sh
-curl https://timetower.ogreg.org/api/v1/enforcers
+curl -u "admin:$TIMELORD_ADMIN_PASSWORD" https://timetower.ogreg.org/api/v1/enforcers
 ```
 
-The shared key and deployment configuration are described in
+The Enforcer key, admin password, and deployment configuration are described in
 [docs/Timetower.md](docs/Timetower.md).

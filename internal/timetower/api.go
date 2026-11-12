@@ -90,6 +90,17 @@ type StatusResponse struct {
 	DenyReason           *string   `json:"deny_reason"`
 }
 
+// UserList is the GET /api/v1/users response body.
+type UserList struct {
+	Users []UserInfo `json:"users"`
+}
+
+// UserInfo is one configured account in the admin listing.
+type UserInfo struct {
+	User        string `json:"user"`
+	DisplayName string `json:"display_name"`
+}
+
 // EnforcerList is the public GET /api/v1/enforcers response body.
 type EnforcerList struct {
 	ServerTime time.Time        `json:"server_time"`

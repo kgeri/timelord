@@ -3,9 +3,10 @@ info:
   title: Timetower API
   version: 1.0.0
   description: |
-    Schedule and status service for TimeLord Enforcers. Enforcers authenticate
-    with a shared bearer key. Users are addressed by account name. Timestamps
-    are UTC RFC 3339; durations are integer seconds.
+    Schedule and status service for TimeLord Enforcers. All clients authenticate
+    with HTTP Basic auth; the username selects the admin or Enforcer role. Users
+    are addressed by account name. Timestamps are UTC RFC 3339; durations are
+    integer seconds.
 servers:
   - url: https://timetower.ogreg.org
 
@@ -17,7 +18,7 @@ paths:
         Returns the policy and remaining daily time for the requested account.
       operationId: getSchedule
       security:
-        - BearerAuth: []
+        - BasicAuth: []
       parameters:
         - $ref: '#/components/parameters/User'
       responses:
@@ -51,7 +52,7 @@ paths:
         Enforcer whether it needs to fetch schedules again.
       operationId: putStatus
       security:
-        - BearerAuth: []
+        - BasicAuth: []
       parameters:
         - $ref: '#/components/parameters/User'
       requestBody:
@@ -77,6 +78,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -108,7 +111,7 @@ paths:
         keyed by policy day.
       operationId: putOverride
       security:
-        - BearerAuth: []
+        - BasicAuth: []
       parameters:
         - $ref: '#/components/parameters/User'
       requestBody:
@@ -134,6 +137,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -150,7 +155,8 @@ paths:
         Returns every hostname that has reported status, whether it is online,
         its last contact time, and the current state of each user it reports.
       operationId: listEnforcers
-      security: []
+      security:
+        - BasicAuth: []
       responses:
         '200':
           description: Enforcer status list.
@@ -158,6 +164,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnforcerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users:
+    get:
+      summary: List configured users
+      description: |
+        Returns the configured accounts for the admin console. The display name
+        falls back to the account name when it is not configured.
+      operationId: listUsers
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: Configured user list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -167,10 +204,13 @@ paths:
 
 components:
   securitySchemes:
-    BearerAuth:
+    BasicAuth:
       type: http
-      scheme: bearer
-      description: Shared TIMELORD_KEY bearer token.
+      scheme: basic
+      description: |
+        HTTP Basic authentication. The username determines the role: `admin`
+        for operator endpoints and `enforcer` for Enforcer endpoints. The
+        passwords are TIMELORD_ADMIN_PASSWORD and TIMELORD_ENFORCER_KEY.
 
   parameters:
     User:
@@ -185,7 +225,9 @@ components:
     BadRequest:
       description: Malformed request.
     Unauthorized:
-      description: Missing or invalid bearer key.
+      description: Missing or invalid credentials.
+    Forbidden:
+      description: Authenticated, but the username is not allowed to use this endpoint.
     NotFound:
       description: The user is not configured.
     MethodNotAllowed:
@@ -204,6 +246,26 @@ components:
       description: Service unavailable.
 
   schemas:
+    User:
+      type: object
+      additionalProperties: false
+      required: [user, display_name]
+      properties:
+        user:
+          type: string
+          example: dani
+        display_name:
+          type: string
+          example: Dani
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
     Window:
       type: object
       additionalProperties: false

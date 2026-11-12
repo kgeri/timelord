@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-# TODO: pass TIMELORD_KEY to a protected Windows service environment or key
+# TODO: pass TIMELORD_ENFORCER_KEY to a protected Windows service environment or key
 # file when Windows Enforcers are supported.
 
 BINARY_NAME="timelord.exe"

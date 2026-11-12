@@ -125,8 +125,8 @@ if [ "$secret_mode" != "600" ] && [ "$secret_mode" != "400" ]; then
 fi
 # shellcheck disable=SC1090
 . "$SECRETS_FILE"
-if [ -z "${TIMELORD_KEY:-}" ]; then
-	echo "error: TIMELORD_KEY is empty or missing in ${SECRETS_FILE}" >&2
+if [ -z "${TIMELORD_ENFORCER_KEY:-}" ]; then
+	echo "error: TIMELORD_ENFORCER_KEY is empty or missing in ${SECRETS_FILE}" >&2
 	exit 1
 fi
 
@@ -157,10 +157,10 @@ ssh "$host" "
 	rm -f '${REMOTE_TMP}'
 "
 
-echo "Installing the Timetower key..."
+echo "Installing the Enforcer key..."
 env_build="$(mktemp)"
 chmod 600 "$env_build"
-printf 'TIMELORD_KEY=%s\n' "$TIMELORD_KEY" > "$env_build"
+printf 'TIMELORD_ENFORCER_KEY=%s\n' "$TIMELORD_ENFORCER_KEY" > "$env_build"
 scp "$env_build" "${host}:${ENV_FILE}.new"
 rm -f "$env_build"
 ssh "$host" "install -m 0600 -o root -g root '${ENV_FILE}.new' '${ENV_FILE}' && rm -f '${ENV_FILE}.new'"

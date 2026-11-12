@@ -9,7 +9,7 @@
 # hostPath-backed Deployment always sees the same configuration.
 #
 # The image tag is the current git commit. The script refuses to deploy from a
-# dirty tree, reads TIMELORD_KEY from secrets.env, updates the Timetower
+# dirty tree, reads TIMELORD_ENFORCER_KEY and TIMELORD_ADMIN_PASSWORD from secrets.env, updates the Timetower
 # Kubernetes Secret, seeds /data/hosted/timetower/config.json from
 # deploy/timetower/config-default.json when it is missing, runs the Go checks,
 # builds and pushes the image, and applies the Kubernetes manifests.
@@ -58,14 +58,19 @@ fi
 set +x
 # shellcheck disable=SC1090
 . "$SECRETS_FILE"
-if [ -z "${TIMELORD_KEY:-}" ]; then
-	echo "ERROR: TIMELORD_KEY is empty or missing in $SECRETS_FILE" >&2
+if [ -z "${TIMELORD_ENFORCER_KEY:-}" ]; then
+	echo "ERROR: TIMELORD_ENFORCER_KEY is empty or missing in $SECRETS_FILE" >&2
+	exit 1
+fi
+if [ -z "${TIMELORD_ADMIN_PASSWORD:-}" ]; then
+	echo "ERROR: TIMELORD_ADMIN_PASSWORD is empty or missing in $SECRETS_FILE" >&2
 	exit 1
 fi
 secret_file=$(mktemp)
 trap 'rm -f "$secret_file"' EXIT
 chmod 600 "$secret_file"
-printf 'TIMELORD_KEY=%s\n' "$TIMELORD_KEY" > "$secret_file"
+printf 'TIMELORD_ENFORCER_KEY=%s\n' "$TIMELORD_ENFORCER_KEY" > "$secret_file"
+printf 'TIMELORD_ADMIN_PASSWORD=%s\n' "$TIMELORD_ADMIN_PASSWORD" >> "$secret_file"
 kubectl create secret generic "$SECRET_NAME" \
 	--namespace "$NAMESPACE" \
 	--from-env-file="$secret_file" \
