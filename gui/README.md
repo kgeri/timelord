@@ -17,11 +17,13 @@ npm run dev    # real Timetower API on the same origin
 
 ```sh
 npm run check   # svelte-check + TypeScript
-npm run build   # production build
+npm run build   # static build in build/
 npm run preview # preview the production build
 ```
 
 `npm run mock` starts Vite in `mock` mode. Every other mode uses the real API.
+The production build uses `@sveltejs/adapter-static` and is served by the Go
+backend from the same origin.
 
 ## API types and services
 
@@ -49,9 +51,9 @@ views.
 
 ### Real backend
 
-The GUI always calls same-origin relative URLs (`/api/v1/...`). It assumes the
-admin UI and Timetower are served from the same origin, so there is no API URL
-or token in the frontend configuration.
+The GUI always calls same-origin relative URLs (`/api/v1/...`). The Go backend
+serves the built UI and its assets, so there is no API URL or token in the
+frontend configuration.
 
 Admin requests use HTTP Basic auth:
 
@@ -62,8 +64,15 @@ The browser prompts for credentials when the API returns a Basic challenge and
 reuses them for later requests. Use TLS for the admin origin; Basic auth sends
 the password with every request.
 
-The backend must also run with `TIMELORD_ENFORCER_KEY` for Enforcers. See
-[`../docs/Timetower.md`](../docs/Timetower.md).
+The backend must also run with `TIMELORD_ENFORCER_KEY` for Enforcers and with
+`-web` pointing at the built UI:
+
+```sh
+npm run build
+./timetower ... -web gui/build
+```
+
+See [`../docs/Timetower.md`](../docs/Timetower.md).
 
 ### Endpoints used
 
@@ -85,6 +94,7 @@ The backend must also run with `TIMELORD_ENFORCER_KEY` for Enforcers. See
 ## Structure
 
 ```
+build/                         adapter-static output served by Timetower
 src/
   app.css                       shared design system (ported from skeleton.html)
   lib/
