@@ -233,6 +233,20 @@ func (s *Store) AggregateUsage(user, day string) int64 {
 	return total
 }
 
+// AggregateUsageRange returns the per-day sums of all hostnames' counters for
+// a user between two inclusive policy days. Days without usage are omitted.
+func (s *Store) AggregateUsageRange(user, fromDay, toDay string) map[string]int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	totals := make(map[string]int64)
+	for key, used := range s.usage {
+		if key.user == user && key.day >= fromDay && key.day <= toDay {
+			totals[key.day] += used
+		}
+	}
+	return totals
+}
+
 // SetOverride stores the current-day override for one user and day. Older
 // overrides for the same user are removed. Call Save to persist the change.
 func (s *Store) SetOverride(user, day string, override DayOverride) {

@@ -34,6 +34,18 @@ type UsageState struct {
 	RemainingSeconds *int64 `json:"remaining_seconds"`
 }
 
+// UsageHistory is the GET /api/v1/history/{user} response body.
+type UsageHistory struct {
+	User    string     `json:"user"`
+	History []UsageDay `json:"history"`
+}
+
+// UsageDay is one policy day's usage aggregated across all hostnames.
+type UsageDay struct {
+	Day         string `json:"day"`
+	UsedSeconds int64  `json:"used_seconds"`
+}
+
 // StatusRequest is the PUT /api/v1/status/{user} request body.
 type StatusRequest struct {
 	ObservedAt      time.Time     `json:"observed_at"`

@@ -69,8 +69,8 @@ Authorization: Basic base64(enforcer:<TIMELORD_ENFORCER_KEY>)
 
 `GET /api/v1/schedule/{user}` accepts both roles because Enforcers and the admin
 console both need it. `PUT /api/v1/status/{user}` accepts only the Enforcer
-username. The override, enforcer-listing, and user-listing endpoints accept only
-the admin username.
+username. The override, enforcer-listing, user-listing, and history endpoints
+accept only the admin username.
 
 Missing or invalid credentials return `401` with a `WWW-Authenticate: Basic`
 challenge, which makes browsers prompt. Valid credentials for the wrong role
@@ -159,6 +159,13 @@ Counters reset at midnight in Timetower's policy time zone. Only the current
 policy day is reported; usage that cannot be delivered before the day changes is
 discarded.
 
+The admin console reads past daily totals from
+`GET /api/v1/history/{user}?days=7`. The endpoint returns one entry per policy
+day, oldest first, ending with the current day. It aggregates the stored
+per-hostname counters and fills days without reports with zero. The `days`
+parameter defaults to `7` and accepts `1` to `400`, matching the retention
+window.
+
 ### Status
 
 An Enforcer sends its hostname, per-user session state, usage counter, and
@@ -239,6 +246,7 @@ charging suspend or stall time.
 | `PUT` | `/api/v1/override/{user}` | Basic (`admin`) | Override the current day's window and/or limit. |
 | `GET` | `/api/v1/enforcers` | Basic (`admin`) | List reporting hostnames, online state, last contact, and remaining time. |
 | `GET` | `/api/v1/users` | Basic (`admin`) | List configured accounts and display names for the admin console. |
+| `GET` | `/api/v1/history/{user}` | Basic (`admin`) | Daily usage totals for the last `days` policy days. |
 
 Both schedule and status success responses carry `X-Schedule-Revision`.
 Override responses also carry it. The Enforcer remembers the value from the

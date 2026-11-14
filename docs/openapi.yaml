@@ -202,6 +202,52 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/history/{user}:
+    get:
+      summary: Get a user's daily usage history
+      description: |
+        Returns one entry per policy day, oldest first, ending with the
+        current policy day. Days without reports are included with
+        `used_seconds: 0`. Usage is aggregated across all hostnames. Usage
+        older than the server's retention window is reported as zero.
+      operationId: getUsageHistory
+      security:
+        - BasicAuth: []
+      parameters:
+        - $ref: '#/components/parameters/User'
+        - name: days
+          in: query
+          required: false
+          description: |
+            Number of policy days to return, ending with the current policy
+            day. Values outside the supported range return `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 400
+            default: 7
+      responses:
+        '200':
+          description: Daily usage history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageHistory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
 components:
   securitySchemes:
     BasicAuth:
@@ -305,6 +351,41 @@ components:
         windows:
           - {day: mon, start: '08:00', end: '19:00'}
           - {day: tue, start: '08:00', end: '20:30'}
+    UsageHistory:
+      type: object
+      additionalProperties: false
+      required: [user, history]
+      properties:
+        user:
+          type: string
+        history:
+          type: array
+          description: Daily totals, oldest first.
+          items:
+            $ref: '#/components/schemas/UsageDay'
+      example:
+        user: dani
+        history:
+          - {day: '2026-11-04', used_seconds: 3900}
+          - {day: '2026-11-05', used_seconds: 6600}
+          - {day: '2026-11-06', used_seconds: 2700}
+          - {day: '2026-11-07', used_seconds: 7200}
+          - {day: '2026-11-08', used_seconds: 5400}
+          - {day: '2026-11-09', used_seconds: 8400}
+          - {day: '2026-11-10', used_seconds: 1500}
+    UsageDay:
+      type: object
+      additionalProperties: false
+      required: [day, used_seconds]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Policy day in the configured time zone.
+        used_seconds:
+          type: integer
+          minimum: 0
+          description: Active seconds aggregated across all hostnames.
     UsageState:
       type: object
       required: [day, used_seconds, remaining_seconds]

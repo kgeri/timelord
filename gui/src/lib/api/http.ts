@@ -7,6 +7,7 @@ import type {
 	Schedule,
 	ScheduleSnapshot,
 	TimetowerService,
+	UsageHistory,
 	UserList,
 	UserSummary
 } from './types';
@@ -121,12 +122,15 @@ export class HttpTimetowerService implements TimetowerService {
 		return { schedule: result.data, revision: result.revision };
 	}
 
-	async getHistory(_username: string, _days = 7): Promise<DayUsage[]> {
-		throw new ServiceError(
-			'Historical usage is not exposed by the Timetower API yet.',
-			501,
-			'not_implemented'
+	async getHistory(username: string, days = 7): Promise<DayUsage[]> {
+		const result = await this.request<UsageHistory>(
+			'GET',
+			`/history/${encodeURIComponent(username)}?days=${encodeURIComponent(String(days))}`
 		);
+		return result.data.history.map((entry) => ({
+			date: entry.day,
+			used_seconds: entry.used_seconds
+		}));
 	}
 
 	async getEnforcers(): Promise<EnforcerList> {

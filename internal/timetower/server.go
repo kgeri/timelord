@@ -24,6 +24,11 @@ import (
 const maxStatusBytes = 8 << 20
 
 const (
+	defaultHistoryDays = 7
+	maxHistoryDays     = 400
+)
+
+const (
 	adminUsername    = "admin"
 	enforcerUsername = "enforcer"
 
@@ -85,6 +90,7 @@ func NewServer(cfg *Config, store *Store, enforcerPassword, adminPassword string
 	mux.HandleFunc("/api/v1/override/", s.handleOverride)
 	mux.HandleFunc("/api/v1/enforcers", s.handleEnforcers)
 	mux.HandleFunc("/api/v1/users", s.handleUsers)
+	mux.HandleFunc("/api/v1/history/", s.handleHistory)
 	s.mux = mux
 	return s
 }
@@ -115,6 +121,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case strings.HasPrefix(r.URL.Path, "/api/v1/override/"),
+		strings.HasPrefix(r.URL.Path, "/api/v1/history/"),
 		r.URL.Path == "/api/v1/enforcers", r.URL.Path == "/api/v1/users":
 		p, ok := s.authenticate(r)
 		if !ok {
@@ -455,6 +462,59 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		users = append(users, UserInfo{User: user.Name, DisplayName: user.DisplayName})
 	}
 	writeJSON(w, http.StatusOK, UserList{Users: users})
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userName, ok := userFromPath(r, "/api/v1/history/")
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	user, ok := s.cfg.UserByName(userName)
+	if !ok {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	days, err := parseHistoryDays(r.URL.Query().Get("days"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	now := s.now().UTC()
+	loc := s.cfg.Location()
+	end, err := time.ParseInLocation(dateLayout, now.In(loc).Format(dateLayout), loc)
+	if err != nil {
+		http.Error(w, "invalid server day", http.StatusInternalServerError)
+		return
+	}
+	start := end.AddDate(0, 0, -(days - 1))
+	totals := s.store.AggregateUsageRange(user.Name, start.Format(dateLayout), end.Format(dateLayout))
+
+	history := make([]UsageDay, 0, days)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		key := day.Format(dateLayout)
+		history = append(history, UsageDay{Day: key, UsedSeconds: totals[key]})
+	}
+	writeJSON(w, http.StatusOK, UsageHistory{User: user.Name, History: history})
+}
+
+func parseHistoryDays(raw string) (int, error) {
+	if raw == "" {
+		return defaultHistoryDays, nil
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 1 || days > maxHistoryDays {
+		return 0, fmt.Errorf("days must be an integer between 1 and %d", maxHistoryDays)
+	}
+	return days, nil
 }
 
 // Monitor logs Enforcer connection and heartbeat-loss transitions.

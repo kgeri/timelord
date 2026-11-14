@@ -119,6 +119,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/history/{user}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a user's daily usage history
+         * @description Returns one entry per policy day, oldest first, ending with the
+         *     current policy day. Days without reports are included with
+         *     `used_seconds: 0`. Usage is aggregated across all hostnames. Usage
+         *     older than the server's retention window is reported as zero.
+         */
+        get: operations["getUsageHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -166,6 +189,55 @@ export interface components {
              */
             daily_limit_seconds: number;
             windows: components["schemas"]["Window"][];
+        };
+        /**
+         * @example {
+         *       "user": "dani",
+         *       "history": [
+         *         {
+         *           "day": "2026-11-04",
+         *           "used_seconds": 3900
+         *         },
+         *         {
+         *           "day": "2026-11-05",
+         *           "used_seconds": 6600
+         *         },
+         *         {
+         *           "day": "2026-11-06",
+         *           "used_seconds": 2700
+         *         },
+         *         {
+         *           "day": "2026-11-07",
+         *           "used_seconds": 7200
+         *         },
+         *         {
+         *           "day": "2026-11-08",
+         *           "used_seconds": 5400
+         *         },
+         *         {
+         *           "day": "2026-11-09",
+         *           "used_seconds": 8400
+         *         },
+         *         {
+         *           "day": "2026-11-10",
+         *           "used_seconds": 1500
+         *         }
+         *       ]
+         *     }
+         */
+        UsageHistory: {
+            user: string;
+            /** @description Daily totals, oldest first. */
+            history: components["schemas"]["UsageDay"][];
+        };
+        UsageDay: {
+            /**
+             * Format: date
+             * @description Policy day in the configured time zone.
+             */
+            day: string;
+            /** @description Active seconds aggregated across all hostnames. */
+            used_seconds: number;
         };
         UsageState: {
             /** Format: date */
@@ -625,6 +697,42 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            405: components["responses"]["MethodNotAllowed"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getUsageHistory: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Number of policy days to return, ending with the current policy
+                 *     day. Values outside the supported range return `400`.
+                 */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Account name. */
+                user: components["parameters"]["User"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily usage history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageHistory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             405: components["responses"]["MethodNotAllowed"];
             500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];

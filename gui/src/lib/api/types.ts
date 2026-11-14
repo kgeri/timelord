@@ -10,6 +10,8 @@ export type Policy = components['schemas']['Policy'];
 export type PolicyWindow = components['schemas']['Window'];
 export type Weekday = PolicyWindow['day'];
 export type UsageState = components['schemas']['UsageState'];
+export type UsageHistory = components['schemas']['UsageHistory'];
+export type UsageDay = components['schemas']['UsageDay'];
 export type OverrideRequest = components['schemas']['OverrideRequest'];
 export type Override = components['schemas']['Override'];
 export type EnforcerList = components['schemas']['EnforcerList'];
@@ -26,8 +28,8 @@ export interface ScheduleSnapshot {
 }
 
 /**
- * One day of historical usage. The current API does not expose history yet;
- * the mock service provides it so the Stats tab can be built now.
+ * One day of historical usage in the shape the Stats tab uses. The API calls
+ * the date field `day`; the HTTP service maps it to `date` for the chart.
  */
 export interface DayUsage {
 	/** Local policy day, `YYYY-MM-DD`. */

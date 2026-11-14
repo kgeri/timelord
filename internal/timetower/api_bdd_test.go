@@ -76,6 +76,7 @@ func initializeAPIScenario(sc *godog.ScenarioContext) {
 	registerStatusSteps(sc, w)
 	registerListingSteps(sc, w)
 	registerUsersSteps(sc, w)
+	registerHistorySteps(sc, w)
 	registerOverrideSteps(sc, w)
 }
 
