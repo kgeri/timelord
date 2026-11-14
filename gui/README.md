@@ -3,9 +3,6 @@
 A mobile-first admin console for Timetower: schedules, remaining daily time,
 emergency locks, quick time extensions, weekly usage, and enforcer status.
 
-The visual design follows [`docs/skeleton.html`](docs/skeleton.html) and the
-behaviour is described in [`docs/SPEC.md`](docs/SPEC.md).
-
 ## Running
 
 ```sh
@@ -96,7 +93,7 @@ See [`../docs/Timetower.md`](../docs/Timetower.md).
 ```
 build/                         adapter-static output served by Timetower
 src/
-  app.css                       shared design system (ported from skeleton.html)
+  app.css                       shared design system
   lib/
     api/
       schema.d.ts               generated from docs/openapi.yaml
