@@ -41,7 +41,6 @@ class Dashboard {
 	error = $state<string | null>(null);
 	historyError = $state<string | null>(null);
 	nodesError = $state<string | null>(null);
-	lastSyncedAt = $state<Date | null>(null);
 
 	status: ScheduleStatus = $derived(deriveScheduleStatus(this.schedule));
 	currentSummary: UserSummary | null = $derived(
@@ -72,7 +71,6 @@ class Dashboard {
 			this.currentUser = first;
 			await this.loadUser(first);
 			await this.loadEnforcers();
-			this.lastSyncedAt = new Date();
 		} catch (error) {
 			this.error = messageFromError(error);
 			this.initialized = false;
@@ -136,7 +134,6 @@ class Dashboard {
 
 		try {
 			await this.loadUser(username);
-			this.lastSyncedAt = new Date();
 		} catch (error) {
 			this.error = messageFromError(error);
 		} finally {
@@ -155,7 +152,6 @@ class Dashboard {
 				this.reloadUsers(),
 				this.loadEnforcers()
 			]);
-			this.lastSyncedAt = new Date();
 		} catch (error) {
 			this.error = messageFromError(error);
 		} finally {
@@ -237,7 +233,6 @@ class Dashboard {
 		try {
 			await this.loadUser(this.currentUser);
 			await this.reloadUsers();
-			this.lastSyncedAt = new Date();
 		} catch (error) {
 			this.error = `Override applied, but refreshing failed: ${messageFromError(error)}`;
 		} finally {

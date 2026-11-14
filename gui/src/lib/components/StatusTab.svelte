@@ -1,5 +1,5 @@
 <script lang="ts">
-	import UsageRing from '#lib/components/UsageRing.svelte';
+	import UsageBar from '#lib/components/UsageBar.svelte';
 	import { dashboard } from '#lib/state/dashboard.svelte';
 	import { formatDuration } from '#lib/utils/format';
 
@@ -7,15 +7,15 @@
 	const limitLabel = $derived(
 		!status.hasPolicy ? '—' : status.unlimited ? 'No limit' : formatDuration(status.limitSeconds)
 	);
-	const remainingLabel = $derived(
-		!status.hasPolicy ? '—' : status.unlimited ? '∞' : formatDuration(status.remainingSeconds)
+	const usedLabel = $derived(
+		!status.hasPolicy ? 'No policy' : `${formatDuration(status.usedSeconds)} used`
 	);
-	const percentLabel = $derived(
+	const remainingLabel = $derived(
 		!status.hasPolicy
-			? 'No policy'
+			? ''
 			: status.unlimited
-				? 'No limit'
-				: `${status.percentUsed}% Used`
+				? 'Unlimited'
+				: `${formatDuration(status.remainingSeconds)} left`
 	);
 	const busy = $derived(dashboard.mutating);
 	const quickAdds = [15, 30, 45, 60];
@@ -25,7 +25,7 @@
 	<div class="card-header">
 		<div class="user-title-group">
 			<div class="username-header">{dashboard.currentUser}</div>
-			<div class={`status-badge ${status.badgeClass}`}>{status.label}</div>
+			<div class="window-label">{status.windowLabel}</div>
 		</div>
 		<div class="limit-group">
 			<div class="section-label section-label--flush">Daily Limit</div>
@@ -33,27 +33,17 @@
 		</div>
 	</div>
 
-	<UsageRing
+	<UsageBar
 		percent={status.percentUsed}
-		usedLabel={formatDuration(status.usedSeconds)}
-		{percentLabel}
-		danger={status.limitReached}
+		{usedLabel}
+		{remainingLabel}
+		statusLabel={status.label}
+		kind={status.kind}
 	/>
-
-	<div class="metrics-grid">
-		<div class="metric-box">
-			<div class="section-label section-label--flush">Remaining</div>
-			<div class="metric-val metric-val--positive">{remainingLabel}</div>
-		</div>
-		<div class="metric-box">
-			<div class="section-label section-label--flush">Active Window</div>
-			<div class="metric-val">{status.windowLabel}</div>
-		</div>
-	</div>
 </div>
 
-<div class="card card--spaced">
-	<div class="section-label">Quick Time Add (1-Tap Override)</div>
+<div class="card">
+	<div class="section-label">Quick Time Add</div>
 	<div class="action-grid">
 		{#each quickAdds as minutes (minutes)}
 			<button
@@ -70,5 +60,4 @@
 		<span aria-hidden="true">🔒</span>
 		{busy ? 'Applying…' : "LOCK IMMEDIATELY (Time's Up)"}
 	</button>
-	<div class="action-note">Changes apply to the current policy day only.</div>
 </div>

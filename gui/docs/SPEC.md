@@ -2,23 +2,23 @@
 
 ## Overview
 
-A lightweight, mobile-first admin web application for managing Timetower Enforcer schedules, remaining daily times, emergency locks, and quick time extensions.
+A lightweight, mobile-first admin web application for managing Timetower Enforcer schedules, remaining daily times, emergency locks, and quick time extensions. The page fits the viewport without vertical page scrolling.
 
 ---
 
 ## Screen Architecture
 
-### 1. Header & Global State
+### 1. User Selector
 
-* **Server Revision**: Displays active `X-Schedule-Revision`.
-* **Sync Status**: Pulse indicator for real-time connection status with manual refresh trigger.
-* **User Selector Carousel**: Horizontal scrollable list for instant switching between monitored user accounts (`dani`, `alex`, `sam`, `taylor`).
+* **User Carousel**: Horizontal scrollable list for instant switching between monitored user accounts (`dani`, `alex`, `sam`, `taylor`).
+* **Enforcer Status**: A small online/offline indicator on each user pill, based on the reporting enforcer for that user.
 
 ### 2. Main Tabs
 
 #### Tab A: Status & Quick Controls (Primary Screen)
 
-* **Usage Ring & Stats**: Visual radial indicator of time used vs. daily limit. Displays remaining seconds, current schedule window, and allowance status (`Allowed`, `Outside Window`, `Locked`).
+* **Usage Bar & Stats**: Compact horizontal progress bar showing used and remaining time inside the bar. Color communicates the allowance state: green for allowed, amber for outside the window, red for locked/limit reached, and grey for disabled/no policy.
+* **Window & Limit**: The current schedule window and daily limit appear in the status card header.
 * **Quick Add Toolbar**: 1-tap buttons (+15m, +30m, +45m, +60m) that update the user's limit and recalculate remaining time.
 * **Emergency Lock Button**: Instant trigger setting limit to current usage (0 remaining seconds) and flagging the account as locked.
 
@@ -38,8 +38,8 @@ A lightweight, mobile-first admin web application for managing Timetower Enforce
 
 ---
 
-## State Model (Vanilla JS)
+## State Model (Svelte 5 Runes)
 
-* `currentUser`: Active selected user object.
-* `revision`: Integer incremented on any mutation or manually refreshed sync.
-* `activeTab`: String tab key (`status`, `override`, `stats`, `nodes`).
+* `currentUser`: Active selected user account.
+* `revision`: Opaque schedule revision from `X-Schedule-Revision`; tracked for refresh semantics but not displayed.
+* `tab`: Active tab key (`status`, `override`, `stats`, `nodes`).

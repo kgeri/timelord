@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
-	import Header from '#lib/components/Header.svelte';
 	import NodesTab from '#lib/components/NodesTab.svelte';
 	import OverrideTab from '#lib/components/OverrideTab.svelte';
 	import StatePanel from '#lib/components/StatePanel.svelte';
@@ -25,8 +24,6 @@
 </svelte:head>
 
 <div class="app-container">
-	<Header />
-
 	{#if dashboard.users.length === 0}
 		<main>
 			{#if dashboard.loading}

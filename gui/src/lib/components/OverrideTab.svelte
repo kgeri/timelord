@@ -87,5 +87,4 @@
 			{busy ? 'Applying…' : 'Apply PUT Override'}
 		</button>
 	</form>
-	<div class="action-note">This override applies to the current policy day only.</div>
 </div>
