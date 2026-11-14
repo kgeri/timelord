@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
-	import NodesTab from '#lib/components/NodesTab.svelte';
-	import OverrideTab from '#lib/components/OverrideTab.svelte';
 	import StatePanel from '#lib/components/StatePanel.svelte';
 	import StatsTab from '#lib/components/StatsTab.svelte';
 	import StatusTab from '#lib/components/StatusTab.svelte';
@@ -74,12 +72,8 @@
 				/>
 			{:else if dashboard.tab === 'status'}
 				<StatusTab />
-			{:else if dashboard.tab === 'override'}
-				<OverrideTab />
 			{:else if dashboard.tab === 'stats'}
 				<StatsTab />
-			{:else if dashboard.tab === 'nodes'}
-				<NodesTab />
 			{/if}
 		</main>
 

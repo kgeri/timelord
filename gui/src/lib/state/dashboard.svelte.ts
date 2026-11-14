@@ -11,7 +11,7 @@ import type {
 import { deriveScheduleStatus, type ScheduleStatus } from '#lib/domain/schedule';
 import { messageFromError } from '#lib/utils/errors';
 
-export type TabKey = 'status' | 'override' | 'stats' | 'nodes';
+export type TabKey = 'status' | 'stats';
 
 /**
  * One shared store for the single-screen admin console. Svelte 5 runes make the
@@ -30,8 +30,6 @@ class Dashboard {
 	schedule = $state<Schedule | null>(null);
 	history = $state<DayUsage[]>([]);
 	enforcers = $state<EnforcerStatus[]>([]);
-	enforcersServerTime = $state<string | null>(null);
-	enforcersServerDay = $state<string | null>(null);
 
 	loading = $state(true);
 	userLoading = $state(false);
@@ -40,7 +38,6 @@ class Dashboard {
 
 	error = $state<string | null>(null);
 	historyError = $state<string | null>(null);
-	nodesError = $state<string | null>(null);
 
 	status: ScheduleStatus = $derived(deriveScheduleStatus(this.schedule));
 	currentSummary: UserSummary | null = $derived(
@@ -112,11 +109,8 @@ class Dashboard {
 		try {
 			const listing = await this.service.getEnforcers();
 			this.enforcers = listing.enforcers;
-			this.enforcersServerTime = listing.server_time;
-			this.enforcersServerDay = listing.server_day;
-			this.nodesError = null;
-		} catch (error) {
-			this.nodesError = messageFromError(error);
+		} catch {
+			this.enforcers = [];
 		}
 	}
 
@@ -176,9 +170,6 @@ class Dashboard {
 
 	switchTab(tab: TabKey): void {
 		this.tab = tab;
-		if (tab === 'nodes' && this.enforcers.length === 0 && !this.nodesError) {
-			void this.loadEnforcers();
-		}
 	}
 
 	dismissError(): void {

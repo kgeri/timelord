@@ -3,9 +3,7 @@
 
 	const tabs: { key: TabKey; icon: string; label: string }[] = [
 		{ key: 'status', icon: '⏱', label: 'Status' },
-		{ key: 'override', icon: '⚙', label: 'Override' },
-		{ key: 'stats', icon: '📊', label: 'Stats' },
-		{ key: 'nodes', icon: '🖥', label: 'Nodes' }
+		{ key: 'stats', icon: '📊', label: 'Stats' }
 	];
 </script>
 

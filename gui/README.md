@@ -1,7 +1,7 @@
 # Timetower Admin UI
 
 A mobile-first admin console for Timetower: schedules, remaining daily time,
-emergency locks, quick time extensions, weekly usage, and enforcer nodes.
+emergency locks, quick time extensions, weekly usage, and enforcer status.
 
 The visual design follows [`docs/skeleton.html`](docs/skeleton.html) and the
 behaviour is described in [`docs/SPEC.md`](docs/SPEC.md).
@@ -81,7 +81,7 @@ See [`../docs/Timetower.md`](../docs/Timetower.md).
 | `GET /api/v1/users` | Configured users for the carousel |
 | `GET /api/v1/schedule/{user}` | Policy, usage, remaining time, revision |
 | `PUT /api/v1/override/{user}` | Quick adds, lock, and the override form |
-| `GET /api/v1/enforcers` | Enforcer nodes and per-user status |
+| `GET /api/v1/enforcers` | Enforcer online status for the user indicators |
 
 ### Known API gaps
 

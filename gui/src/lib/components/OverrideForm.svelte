@@ -32,13 +32,13 @@
 			return;
 		}
 		if (start >= end) {
-			formError = 'The window start must be earlier than the end.';
+			formError = 'The start time must be earlier than the end.';
 			return;
 		}
 
 		const limit = Number(dailyLimit);
 		if (!Number.isInteger(limit) || limit < 0) {
-			formError = 'The daily limit must be a whole, non-negative number of minutes.';
+			formError = 'The limit must be a whole, non-negative number of minutes.';
 			return;
 		}
 
@@ -54,37 +54,36 @@
 </script>
 
 <div class="card">
-	<div class="section-label section-label--spaced">Policy Window &amp; Limit Override</div>
+	<div class="section-label section-label--spaced">Schedule &amp; Limit Override</div>
 	<form onsubmit={(event) => void submit(event)}>
-		<div class="form-row">
+		<div class="override-grid">
 			<div class="form-group">
-				<label for="override-start">WINDOW START</label>
+				<label for="override-start">FROM</label>
 				<input id="override-start" type="time" bind:value={windowStart} required />
 			</div>
 			<div class="form-group">
-				<label for="override-end">WINDOW END</label>
+				<label for="override-end">UNTIL</label>
 				<input id="override-end" type="time" bind:value={windowEnd} required />
 			</div>
-		</div>
-		<div class="form-group">
-			<label for="override-limit">DAILY LIMIT (MINUTES)</label>
-			<input
-				id="override-limit"
-				type="number"
-				min="0"
-				max="1440"
-				step="1"
-				inputmode="numeric"
-				bind:value={dailyLimit}
-				required
-			/>
-			<div class="form-hint">0 minutes means no duration limit.</div>
+			<div class="form-group">
+				<label for="override-limit">LIMIT (MIN)</label>
+				<input
+					id="override-limit"
+					type="number"
+					min="0"
+					max="1440"
+					step="1"
+					inputmode="numeric"
+					bind:value={dailyLimit}
+					required
+				/>
+			</div>
 		</div>
 		{#if formError}
 			<div class="form-error" role="alert">{formError}</div>
 		{/if}
 		<button type="submit" class="btn-submit" disabled={busy}>
-			{busy ? 'Applying…' : 'Apply PUT Override'}
+			{busy ? 'Applying…' : 'Override'}
 		</button>
 	</form>
 </div>
