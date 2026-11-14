@@ -33,10 +33,12 @@ export function formatDuration(seconds: number | null | undefined): string {
 	return `${minutes}m`;
 }
 
-/** Format seconds as whole minutes, for the weekly chart. */
-export function formatMinutes(seconds: number): string {
-	const minutes = Math.round(seconds / 60);
-	return `${minutes}m`;
+/** Format seconds as decimal hours, for the weekly chart. */
+export function formatHours(seconds: number): string {
+	if (!Number.isFinite(seconds) || seconds <= 0) return '0h';
+	const hours = seconds / 3600;
+	if (hours < 0.05) return '<0.1h';
+	return `${Number(hours.toFixed(1))}h`;
 }
 
 /** Parse a `YYYY-MM-DD` policy day as a UTC date and return its weekday. */

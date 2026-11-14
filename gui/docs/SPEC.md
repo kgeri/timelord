@@ -25,7 +25,7 @@ A lightweight, mobile-first admin web application for managing Timetower Enforce
 
 #### Tab B: Historical Stats
 
-* **7-Day Bar Visualization**: CSS-native bar chart rendering weekly usage trends (minutes used per day).
+* **7-Day Bar Visualization**: CSS-native bar chart rendering weekly usage trends in hours (used hours per day).
 
 ---
 
