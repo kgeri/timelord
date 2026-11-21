@@ -29,9 +29,10 @@ type Policy struct {
 
 // UsageState is a user's usage for a policy day.
 type UsageState struct {
-	Day              string `json:"day"`
-	UsedSeconds      int64  `json:"used_seconds"`
-	RemainingSeconds *int64 `json:"remaining_seconds"`
+	Day              string      `json:"day"`
+	UsedSeconds      int64       `json:"used_seconds"`
+	RemainingSeconds *int64      `json:"remaining_seconds"`
+	Hosts            []HostUsage `json:"hosts"`
 }
 
 // UsageHistory is the GET /api/v1/history/{user} response body.
@@ -40,9 +41,17 @@ type UsageHistory struct {
 	History []UsageDay `json:"history"`
 }
 
-// UsageDay is one policy day's usage aggregated across all hostnames.
+// UsageDay is one policy day's usage and its per-hostname breakdown.
 type UsageDay struct {
-	Day         string `json:"day"`
+	Day         string      `json:"day"`
+	UsedSeconds int64       `json:"used_seconds"`
+	Hosts       []HostUsage `json:"hosts"`
+}
+
+// HostUsage is the usage counter reported by one hostname. The schedule and
+// history responses include these entries sorted by hostname.
+type HostUsage struct {
+	Hostname    string `json:"hostname"`
 	UsedSeconds int64  `json:"used_seconds"`
 }
 

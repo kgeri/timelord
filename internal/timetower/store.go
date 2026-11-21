@@ -233,6 +233,46 @@ func (s *Store) AggregateUsage(user, day string) int64 {
 	return total
 }
 
+// UsageByHost returns one user's counters for a day, sorted by hostname.
+func (s *Store) UsageByHost(user, day string) []HostUsage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	hosts := make([]HostUsage, 0)
+	for key, used := range s.usage {
+		if key.user == user && key.day == day {
+			hosts = append(hosts, HostUsage{Hostname: key.hostname, UsedSeconds: used})
+		}
+	}
+	sort.Slice(hosts, func(i, j int) bool {
+		return hosts[i].Hostname < hosts[j].Hostname
+	})
+	return hosts
+}
+
+// UsageRangeByHost returns per-host counters for a user between two inclusive
+// policy days, keyed by day. Hosts within each day are sorted by hostname.
+func (s *Store) UsageRangeByHost(user, fromDay, toDay string) map[string][]HostUsage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	byDay := make(map[string][]HostUsage)
+	for key, used := range s.usage {
+		if key.user == user && key.day >= fromDay && key.day <= toDay {
+			byDay[key.day] = append(byDay[key.day], HostUsage{
+				Hostname:    key.hostname,
+				UsedSeconds: used,
+			})
+		}
+	}
+	for day := range byDay {
+		sort.Slice(byDay[day], func(i, j int) bool {
+			return byDay[day][i].Hostname < byDay[day][j].Hostname
+		})
+	}
+	return byDay
+}
+
 // AggregateUsageRange returns the per-day sums of all hostnames' counters for
 // a user between two inclusive policy days. Days without usage are omitted.
 func (s *Store) AggregateUsageRange(user, fromDay, toDay string) map[string]int64 {

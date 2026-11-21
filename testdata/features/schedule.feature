@@ -42,6 +42,23 @@ Feature: Schedule
       | daily_limit_seconds | 5400 |
       | remaining_seconds   | 4800 |
 
+  Scenario: The schedule reports today's usage per host
+    When the enforcer reports:
+      | hostname | pc-one     |
+      | day      | 2024-06-03 |
+      | used     | 1000       |
+    And the enforcer reports:
+      | hostname | pc-two     |
+      | day      | 2024-06-03 |
+      | used     | 500        |
+    When the enforcer requests the schedule for "dani"
+    Then the schedule is:
+      | used_seconds      | 1500 |
+      | remaining_seconds | 2100 |
+    And the schedule usage hosts are:
+      | host | pc-one 1000 |
+      | host | pc-two 500  |
+
   Scenario Outline: The schedule requires credentials
     When the enforcer requests the schedule for "dani" <auth>
     Then the response status is 401

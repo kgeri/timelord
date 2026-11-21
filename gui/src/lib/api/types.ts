@@ -12,6 +12,7 @@ export type Weekday = PolicyWindow['day'];
 export type UsageState = components['schemas']['UsageState'];
 export type UsageHistory = components['schemas']['UsageHistory'];
 export type UsageDay = components['schemas']['UsageDay'];
+export type HostUsage = components['schemas']['HostUsage'];
 export type OverrideRequest = components['schemas']['OverrideRequest'];
 export type Override = components['schemas']['Override'];
 export type EnforcerList = components['schemas']['EnforcerList'];
@@ -35,6 +36,13 @@ export interface DayUsage {
 	/** Local policy day, `YYYY-MM-DD`. */
 	date: string;
 	used_seconds: number;
+	hosts: HostUsage[];
+}
+
+/** A host's current-day usage plus the online state from the enforcer listing. */
+export interface HostStatus extends HostUsage {
+	online: boolean | null;
+	last_seen: string | null;
 }
 
 /**

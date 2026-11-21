@@ -159,6 +159,11 @@ obtain user usage.
 The daily limit for the current policy day is shared across all hostnames.
 Active time on two hosts at the same time consumes the limit twice as fast.
 
+The aggregate is returned with a per-hostname breakdown. The schedule's
+`usage.hosts` array carries the current day's counters, and each history entry
+carries the same breakdown for its day. Hosts are sorted by name; enforcement
+still uses the aggregate only.
+
 Counters reset at midnight in Timetower's policy time zone. Only the current
 policy day is reported; usage that cannot be delivered before the day changes is
 discarded.
@@ -166,9 +171,9 @@ discarded.
 The admin console reads past daily totals from
 `GET /api/v1/history/{user}?days=7`. The endpoint returns one entry per policy
 day, oldest first, ending with the current day. It aggregates the stored
-per-hostname counters and fills days without reports with zero. The `days`
-parameter defaults to `7` and accepts `1` to `400`, matching the retention
-window.
+per-hostname counters, includes the `hosts` breakdown, and fills days without
+reports with zero. The `days` parameter defaults to `7` and accepts `1` to
+`400`, matching the retention window.
 
 ### Status
 
@@ -256,7 +261,7 @@ charging suspend or stall time.
 | `PUT` | `/api/v1/override/{user}` | Basic (`admin`) | Override the current day's window and/or limit. |
 | `GET` | `/api/v1/enforcers` | Basic (`admin`) | List reporting hostnames, online state, last contact, and remaining time. |
 | `GET` | `/api/v1/users` | Basic (`admin`) | List configured accounts and display names for the admin console. |
-| `GET` | `/api/v1/history/{user}` | Basic (`admin`) | Daily usage totals for the last `days` policy days. |
+| `GET` | `/api/v1/history/{user}` | Basic (`admin`) | Daily usage totals and per-host breakdown for the last `days` policy days. |
 
 Both schedule and status success responses carry `X-Schedule-Revision`.
 Override responses also carry it. The Enforcer remembers the value from the

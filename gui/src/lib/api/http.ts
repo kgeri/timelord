@@ -129,7 +129,11 @@ export class HttpTimetowerService implements TimetowerService {
 		);
 		return result.data.history.map((entry) => ({
 			date: entry.day,
-			used_seconds: entry.used_seconds
+			used_seconds: entry.used_seconds,
+			hosts: entry.hosts.map((host) => ({
+				hostname: host.hostname,
+				used_seconds: host.used_seconds
+			}))
 		}));
 	}
 

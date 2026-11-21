@@ -49,7 +49,8 @@ The enforcement rules remain:
 - a **daily limit** is the maximum active minutes per policy day, configured
   per weekday on its window;
 - a user with no policy, a disabled policy, or no window for today is denied;
-- usage is aggregated across all hostnames for the user;
+- usage is aggregated across all hostnames for the user and exposed with a
+  per-hostname breakdown in the schedule and history responses;
 - a missing weekday limit or `0` means no duration limit.
 
 On Linux, sessions come from systemd-logind. A local session is active when it

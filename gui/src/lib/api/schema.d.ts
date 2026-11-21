@@ -130,7 +130,8 @@ export interface paths {
          * Get a user's daily usage history
          * @description Returns one entry per policy day, oldest first, ending with the
          *     current policy day. Days without reports are included with
-         *     `used_seconds: 0`. Usage is aggregated across all hostnames. Usage
+         *     `used_seconds: 0` and an empty `hosts` array. Each day carries both the
+         *     account total and the per-hostname counters that make it up. Usage
          *     older than the server's retention window is reported as zero.
          */
         get: operations["getUsageHistory"];
@@ -195,32 +196,28 @@ export interface components {
          *       "user": "dani",
          *       "history": [
          *         {
-         *           "day": "2026-11-04",
-         *           "used_seconds": 3900
-         *         },
-         *         {
-         *           "day": "2026-11-05",
-         *           "used_seconds": 6600
-         *         },
-         *         {
-         *           "day": "2026-11-06",
-         *           "used_seconds": 2700
-         *         },
-         *         {
-         *           "day": "2026-11-07",
-         *           "used_seconds": 7200
-         *         },
-         *         {
-         *           "day": "2026-11-08",
-         *           "used_seconds": 5400
-         *         },
-         *         {
          *           "day": "2026-11-09",
-         *           "used_seconds": 8400
+         *           "used_seconds": 8400,
+         *           "hosts": [
+         *             {
+         *               "hostname": "dani-desktop",
+         *               "used_seconds": 6000
+         *             },
+         *             {
+         *               "hostname": "dani-laptop",
+         *               "used_seconds": 2400
+         *             }
+         *           ]
          *         },
          *         {
          *           "day": "2026-11-10",
-         *           "used_seconds": 1500
+         *           "used_seconds": 1500,
+         *           "hosts": [
+         *             {
+         *               "hostname": "dani-desktop",
+         *               "used_seconds": 1500
+         *             }
+         *           ]
          *         }
          *       ]
          *     }
@@ -230,6 +227,12 @@ export interface components {
             /** @description Daily totals, oldest first. */
             history: components["schemas"]["UsageDay"][];
         };
+        HostUsage: {
+            /** @description Reporting Enforcer hostname. */
+            hostname: string;
+            /** @description Active seconds reported by this hostname. */
+            used_seconds: number;
+        };
         UsageDay: {
             /**
              * Format: date
@@ -238,6 +241,11 @@ export interface components {
             day: string;
             /** @description Active seconds aggregated across all hostnames. */
             used_seconds: number;
+            /**
+             * @description Per-hostname counters for the day, sorted by hostname. The entries
+             *     sum to `used_seconds`; days without usage have an empty array.
+             */
+            hosts: components["schemas"]["HostUsage"][];
         };
         UsageState: {
             /** Format: date */
@@ -245,6 +253,11 @@ export interface components {
             used_seconds: number;
             /** @description Remaining seconds for the day; `null` when there is no daily limit. */
             remaining_seconds: number | null;
+            /**
+             * @description Per-hostname counters for the day, sorted by hostname. The entries
+             *     sum to `used_seconds`.
+             */
+            hosts: components["schemas"]["HostUsage"][];
         };
         /**
          * @example {
@@ -268,7 +281,17 @@ export interface components {
          *       "usage": {
          *         "day": "2026-11-10",
          *         "used_seconds": 1500,
-         *         "remaining_seconds": 2100
+         *         "remaining_seconds": 2100,
+         *         "hosts": [
+         *           {
+         *             "hostname": "dani-desktop",
+         *             "used_seconds": 1000
+         *           },
+         *           {
+         *             "hostname": "dani-laptop",
+         *             "used_seconds": 500
+         *           }
+         *         ]
          *       }
          *     }
          */

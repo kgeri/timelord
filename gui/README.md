@@ -76,14 +76,13 @@ See [`../docs/Timetower.md`](../docs/Timetower.md).
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/v1/users` | Configured users for the carousel |
-| `GET /api/v1/schedule/{user}` | Policy, usage, remaining time, revision |
+| `GET /api/v1/schedule/{user}` | Policy, usage, current-day per-host breakdown, revision |
+| `GET /api/v1/history/{user}` | Daily usage and per-host breakdown for the Stats tab |
 | `PUT /api/v1/override/{user}` | Quick adds, lock, and the override form |
-| `GET /api/v1/enforcers` | Enforcer online status for the user indicators |
+| `GET /api/v1/enforcers` | Enforcer online status for the user and host indicators |
 
 ### Known API gaps
 
-- There is no historical-usage endpoint yet. The mock provides seven days for
-  the Stats tab; real mode shows a clear "History unavailable" state.
 - `limit_minutes: 0` means "no duration limit", not "locked". The emergency
   lock uses the time already used in whole minutes, which guarantees zero
   remaining for normal (> 1 minute) usage.

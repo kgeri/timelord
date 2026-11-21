@@ -225,6 +225,7 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 			Day:              day,
 			UsedSeconds:      used,
 			RemainingSeconds: remainingSeconds(policy, used),
+			Hosts:            s.store.UsageByHost(user.Name, day),
 		},
 	}
 
@@ -496,12 +497,20 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	start := end.AddDate(0, 0, -(days - 1))
-	totals := s.store.AggregateUsageRange(user.Name, start.Format(dateLayout), end.Format(dateLayout))
+	breakdown := s.store.UsageRangeByHost(user.Name, start.Format(dateLayout), end.Format(dateLayout))
 
 	history := make([]UsageDay, 0, days)
 	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
 		key := day.Format(dateLayout)
-		history = append(history, UsageDay{Day: key, UsedSeconds: totals[key]})
+		hosts := breakdown[key]
+		if hosts == nil {
+			hosts = []HostUsage{}
+		}
+		var used int64
+		for _, host := range hosts {
+			used += host.UsedSeconds
+		}
+		history = append(history, UsageDay{Day: key, UsedSeconds: used, Hosts: hosts})
 	}
 	writeJSON(w, http.StatusOK, UsageHistory{User: user.Name, History: history})
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import OverrideForm from '#lib/components/OverrideForm.svelte';
+	import HostUsageList from '#lib/components/HostUsageList.svelte';
 	import UsageBar from '#lib/components/UsageBar.svelte';
 	import { dashboard } from '#lib/state/dashboard.svelte';
 	import { formatDuration } from '#lib/utils/format';
@@ -41,6 +42,8 @@
 		statusLabel={status.label}
 		kind={status.kind}
 	/>
+
+	<HostUsageList hosts={dashboard.currentHosts} totalSeconds={status.usedSeconds} />
 </div>
 
 <div class="card">

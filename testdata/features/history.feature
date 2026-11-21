@@ -38,6 +38,10 @@ Feature: Usage history
       | entry | 2024-06-03 1500 |
       | entry | 2024-06-04 0    |
       | entry | 2024-06-05 1200 |
+    And the usage history host breakdown is:
+      | host | 2024-06-03 pc-one 1000    |
+      | host | 2024-06-03 pc-two 500     |
+      | host | 2024-06-05 test-host 1200 |
 
   Scenario: The admin selects the number of days
     When the admin requests the usage history for "dani" with days "3"

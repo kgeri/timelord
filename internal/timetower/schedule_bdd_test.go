@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/cucumber/godog"
 
@@ -20,6 +22,7 @@ func registerScheduleSteps(sc *godog.ScenarioContext, w *apiWorld) {
 	sc.Step(`^the enforcer requests the schedule for "([^"]*)" (without credentials|with the wrong password)$`, w.requestScheduleWithAuth)
 	sc.Step(`^the enforcer sends a POST to the schedule for "([^"]*)"$`, w.postSchedule)
 	sc.Step(`^the schedule is:$`, w.scheduleIs)
+	sc.Step(`^the schedule usage hosts are:$`, w.scheduleUsageHostsAre)
 }
 
 func (w *apiWorld) requestSchedule(user string) error {
@@ -133,6 +136,37 @@ func (w *apiWorld) scheduleIs(tbl *godog.Table) error {
 		return fmt.Errorf("schedule policy is nil")
 	}
 	return compareWindows(w.schedule.Policy.Windows, want.Windows)
+}
+
+func (w *apiWorld) scheduleUsageHostsAre(tbl *godog.Table) error {
+	if err := w.fetchSchedule("dani"); err != nil {
+		return err
+	}
+	var want struct {
+		Entries []string `table:"host"`
+	}
+	if err := gherkin.DecodeTable(tbl, &want); err != nil {
+		return err
+	}
+
+	got := w.schedule.Usage.Hosts
+	if len(got) != len(want.Entries) {
+		return fmt.Errorf("hosts = %d, want %d", len(got), len(want.Entries))
+	}
+	for i, raw := range want.Entries {
+		parts := strings.Fields(raw)
+		if len(parts) != 2 {
+			return fmt.Errorf("host entry %q must be \"<hostname> <seconds>\"", raw)
+		}
+		used, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("host entry %q: %w", raw, err)
+		}
+		if got[i].Hostname != parts[0] || got[i].UsedSeconds != used {
+			return fmt.Errorf("hosts[%d] = %s %d, want %s %d", i, got[i].Hostname, got[i].UsedSeconds, parts[0], used)
+		}
+	}
+	return nil
 }
 
 func (w *apiWorld) fetchSchedule(user string) error {

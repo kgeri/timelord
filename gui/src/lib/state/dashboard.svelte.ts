@@ -3,6 +3,7 @@ import { ServiceError } from '#lib/api/errors';
 import type {
 	DayUsage,
 	EnforcerStatus,
+	HostStatus,
 	OverrideRequest,
 	Schedule,
 	TimetowerService,
@@ -43,6 +44,30 @@ class Dashboard {
 	currentSummary: UserSummary | null = $derived(
 		this.users.find((user) => user.username === this.currentUser) ?? null
 	);
+	currentHosts: HostStatus[] = $derived.by(() => {
+		const hosts = new Map<string, HostStatus>();
+		for (const host of this.schedule?.usage.hosts ?? []) {
+			hosts.set(host.hostname, {
+				hostname: host.hostname,
+				used_seconds: host.used_seconds,
+				online: null,
+				last_seen: null
+			});
+		}
+		for (const enforcer of this.enforcers) {
+			for (const status of enforcer.users) {
+				if (status.user !== this.currentUser) continue;
+				const existing = hosts.get(enforcer.hostname);
+				hosts.set(enforcer.hostname, {
+					hostname: enforcer.hostname,
+					used_seconds: existing?.used_seconds ?? 0,
+					online: enforcer.online,
+					last_seen: enforcer.last_seen
+				});
+			}
+		}
+		return [...hosts.values()].sort((a, b) => a.hostname.localeCompare(b.hostname));
+	});
 
 	constructor(service: TimetowerService = getTimetowerService()) {
 		this.service = service;

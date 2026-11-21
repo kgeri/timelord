@@ -3,6 +3,7 @@ package timetower
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,40 @@ func TestStoreUsageIsMonotonicAndAggregates(t *testing.T) {
 	}
 	if got := store.AggregateUsage("dani", "2024-06-04"); got != 0 {
 		t.Errorf("AggregateUsage(other day) = %d, want 0", got)
+	}
+	wantHosts := []HostUsage{
+		{Hostname: "pc-one", UsedSeconds: 100},
+		{Hostname: "pc-two", UsedSeconds: 25},
+	}
+	if got := store.UsageByHost("dani", "2024-06-03"); !reflect.DeepEqual(got, wantHosts) {
+		t.Errorf("UsageByHost() = %+v, want %+v", got, wantHosts)
+	}
+}
+
+func TestStoreUsageRangeByHost(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	store.RecordUsage("pc-two", "dani", "2024-06-03", 50)
+	store.RecordUsage("pc-one", "dani", "2024-06-03", 100)
+	store.RecordUsage("pc-one", "dani", "2024-06-05", 20)
+	store.RecordUsage("pc-one", "dani", "2024-06-01", 10)
+	store.RecordUsage("pc-one", "eva", "2024-06-03", 30)
+
+	got := store.UsageRangeByHost("dani", "2024-06-03", "2024-06-05")
+	want := map[string][]HostUsage{
+		"2024-06-03": {
+			{Hostname: "pc-one", UsedSeconds: 100},
+			{Hostname: "pc-two", UsedSeconds: 50},
+		},
+		"2024-06-05": {
+			{Hostname: "pc-one", UsedSeconds: 20},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("UsageRangeByHost() = %+v, want %+v", got, want)
 	}
 }
 

@@ -13,18 +13,22 @@ import type {
 	Weekday
 } from './types';
 
-interface MockUser {
-	username: string;
-	displayName: string;
+interface MockHost {
 	hostname: string;
 	usedSeconds: number;
-	limitMinutes: number;
-	windowStart: string;
-	windowEnd: string;
 	/** Oldest first, in minutes, for the weekly chart. */
 	historyMinutes: number[];
 	online: boolean;
 	lastSeenSecondsAgo: number;
+}
+
+interface MockUser {
+	username: string;
+	displayName: string;
+	limitMinutes: number;
+	windowStart: string;
+	windowEnd: string;
+	hosts: MockHost[];
 }
 
 const WEEKDAYS: Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -34,50 +38,80 @@ const INITIAL_USERS: MockUser[] = [
 	{
 		username: 'dani',
 		displayName: 'Dani',
-		hostname: 'dani-desktop',
-		usedSeconds: 4500,
 		limitMinutes: 120,
 		windowStart: '08:00',
 		windowEnd: '19:00',
-		historyMinutes: [65, 110, 45, 120, 90, 140, 75],
-		online: true,
-		lastSeenSecondsAgo: 6
+		hosts: [
+			{
+				hostname: 'dani-desktop',
+				usedSeconds: 3000,
+				historyMinutes: [40, 70, 30, 80, 55, 90, 50],
+				online: true,
+				lastSeenSecondsAgo: 6
+			},
+			{
+				hostname: 'dani-laptop',
+				usedSeconds: 1500,
+				historyMinutes: [25, 40, 15, 40, 35, 50, 25],
+				online: true,
+				lastSeenSecondsAgo: 18
+			}
+		]
 	},
 	{
 		username: 'alex',
 		displayName: 'Alex',
-		hostname: 'alex-laptop',
-		usedSeconds: 5400,
 		limitMinutes: 90,
 		windowStart: '09:00',
 		windowEnd: '18:00',
-		historyMinutes: [90, 85, 90, 90, 120, 180, 160],
-		online: true,
-		lastSeenSecondsAgo: 14
+		hosts: [
+			{
+				hostname: 'alex-work',
+				usedSeconds: 3600,
+				historyMinutes: [60, 55, 60, 60, 80, 120, 105],
+				online: true,
+				lastSeenSecondsAgo: 14
+			},
+			{
+				hostname: 'alex-laptop',
+				usedSeconds: 1800,
+				historyMinutes: [30, 30, 30, 30, 40, 60, 55],
+				online: false,
+				lastSeenSecondsAgo: 2 * 60 * 60 + 4 * 60
+			}
+		]
 	},
 	{
 		username: 'sam',
 		displayName: 'Sam',
-		hostname: 'sam-rig',
-		usedSeconds: 1200,
 		limitMinutes: 180,
 		windowStart: '16:00',
 		windowEnd: '21:00',
-		historyMinutes: [30, 45, 60, 20, 110, 150, 180],
-		online: true,
-		lastSeenSecondsAgo: 3
+		hosts: [
+			{
+				hostname: 'sam-rig',
+				usedSeconds: 1200,
+				historyMinutes: [30, 45, 60, 20, 110, 150, 180],
+				online: true,
+				lastSeenSecondsAgo: 3
+			}
+		]
 	},
 	{
 		username: 'taylor',
 		displayName: 'Taylor',
-		hostname: 'taylor-tablet',
-		usedSeconds: 1800,
 		limitMinutes: 120,
 		windowStart: '08:00',
 		windowEnd: '12:00',
-		historyMinutes: [0, 25, 40, 15, 30, 20, 10],
-		online: false,
-		lastSeenSecondsAgo: 2 * 60 * 60 + 17 * 60
+		hosts: [
+			{
+				hostname: 'taylor-tablet',
+				usedSeconds: 1800,
+				historyMinutes: [0, 25, 40, 15, 30, 20, 10],
+				online: false,
+				lastSeenSecondsAgo: 2 * 60 * 60 + 17 * 60
+			}
+		]
 	}
 ];
 
@@ -122,6 +156,14 @@ function isInsideWindow(user: MockUser, now: Date): boolean {
 	return clockMinutes(user.windowStart) <= clock && clock < clockMinutes(user.windowEnd);
 }
 
+function totalUsedSeconds(user: MockUser): number {
+	return user.hosts.reduce((sum, host) => sum + host.usedSeconds, 0);
+}
+
+function historyMinutesAt(host: MockHost, source: number): number {
+	return source >= 0 ? (host.historyMinutes[source] ?? 0) : 0;
+}
+
 interface UserDecision {
 	remainingSeconds: number | null;
 	insideWindow: boolean;
@@ -130,10 +172,11 @@ interface UserDecision {
 }
 
 function decide(user: MockUser, now: Date): UserDecision {
+	const usedSeconds = totalUsedSeconds(user);
 	const limitSeconds = user.limitMinutes * 60;
 	const insideWindow = isInsideWindow(user, now);
-	const limitReached = limitSeconds > 0 && user.usedSeconds >= limitSeconds;
-	const remainingSeconds = limitSeconds === 0 ? null : Math.max(0, limitSeconds - user.usedSeconds);
+	const limitReached = limitSeconds > 0 && usedSeconds >= limitSeconds;
+	const remainingSeconds = limitSeconds === 0 ? null : Math.max(0, limitSeconds - usedSeconds);
 
 	let denyReason: UserStatus['deny_reason'] = null;
 	if (!insideWindow) {
@@ -200,8 +243,8 @@ export class MockTimetowerService implements TimetowerService {
 			return {
 				username: user.username,
 				display_name: user.displayName,
-				hostname: user.hostname,
-				used_seconds: user.usedSeconds,
+				hostname: user.hosts[0]?.hostname ?? null,
+				used_seconds: totalUsedSeconds(user),
 				daily_limit_seconds: user.limitMinutes * 60,
 				remaining_seconds: decision.remainingSeconds,
 				allowed: decision.allowed
@@ -217,6 +260,7 @@ export class MockTimetowerService implements TimetowerService {
 		const decision = decide(user, now);
 		const limitSeconds = user.limitMinutes * 60;
 
+		const usedSeconds = totalUsedSeconds(user);
 		const schedule: Schedule = {
 			schema_version: 1,
 			server_time: now.toISOString(),
@@ -237,8 +281,11 @@ export class MockTimetowerService implements TimetowerService {
 			},
 			usage: {
 				day,
-				used_seconds: user.usedSeconds,
-				remaining_seconds: decision.remainingSeconds
+				used_seconds: usedSeconds,
+				remaining_seconds: decision.remainingSeconds,
+				hosts: user.hosts
+					.map((host) => ({ hostname: host.hostname, used_seconds: host.usedSeconds }))
+					.sort((a, b) => a.hostname.localeCompare(b.hostname))
 			}
 		};
 
@@ -249,13 +296,22 @@ export class MockTimetowerService implements TimetowerService {
 		const user = this.user(username);
 		const count = Math.min(31, Math.max(1, Math.trunc(days)));
 		const history: DayUsage[] = [];
+		const historyLength = user.hosts[0]?.historyMinutes.length ?? 0;
 
 		for (let index = 0; index < count; index += 1) {
-			const source = user.historyMinutes.length - count + index;
-			const minutes = source >= 0 ? (user.historyMinutes[source] ?? 0) : 0;
+			const source = historyLength - count + index;
+			const hosts = user.hosts
+				.map((host) => ({
+					hostname: host.hostname,
+					used_seconds: historyMinutesAt(host, source) * 60
+				}))
+				.filter((host) => host.used_seconds > 0)
+				.sort((a, b) => a.hostname.localeCompare(b.hostname));
+			const usedSeconds = hosts.reduce((sum, host) => sum + host.used_seconds, 0);
 			history.push({
 				date: dateOffset(index - count + 1),
-				used_seconds: minutes * 60
+				used_seconds: usedSeconds,
+				hosts
 			});
 		}
 
@@ -264,12 +320,12 @@ export class MockTimetowerService implements TimetowerService {
 
 	async getEnforcers(): Promise<EnforcerList> {
 		const now = mockNow();
-		const enforcers: EnforcerStatus[] = this.users.map((user) => {
+		const enforcers: EnforcerStatus[] = this.users.flatMap((user) => {
 			const decision = decide(user, now);
-			const lastSeen = new Date(now.getTime() - user.lastSeenSecondsAgo * 1000);
+			const usedSeconds = totalUsedSeconds(user);
 			const status: UserStatus = {
 				user: user.username,
-				used_seconds: user.usedSeconds,
+				used_seconds: usedSeconds,
 				daily_limit_seconds: user.limitMinutes * 60,
 				remaining_seconds: decision.remainingSeconds,
 				inside_window: decision.insideWindow,
@@ -277,12 +333,15 @@ export class MockTimetowerService implements TimetowerService {
 				deny_reason: decision.denyReason
 			};
 
-			return {
-				hostname: user.hostname,
-				online: user.online,
-				last_seen: lastSeen.toISOString(),
-				users: [status]
-			};
+			return user.hosts.map((host) => {
+				const lastSeen = new Date(now.getTime() - host.lastSeenSecondsAgo * 1000);
+				return {
+					hostname: host.hostname,
+					online: host.online,
+					last_seen: lastSeen.toISOString(),
+					users: [status]
+				};
+			});
 		});
 
 		return this.respond({
