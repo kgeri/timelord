@@ -424,7 +424,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.RecordUsage(request.Hostname, user.Name, usageDay, request.UsageSeconds)
 
-	s.markSeen(request.Hostname, now)
+	s.markSeen(user.Name, request.Hostname, now)
 	s.store.SetStatus(request.Hostname, user.Name, StatusRecord{
 		Hostname:   request.Hostname,
 		User:       user.Name,
@@ -535,7 +535,7 @@ func (s *Server) Monitor(ctx context.Context) {
 	}
 }
 
-func (s *Server) markSeen(hostname string, now time.Time) {
+func (s *Server) markSeen(user, hostname string, now time.Time) {
 	s.mu.Lock()
 	wasOnline := s.online[hostname]
 	s.online[hostname] = true
@@ -543,7 +543,7 @@ func (s *Server) markSeen(hostname string, now time.Time) {
 	s.mu.Unlock()
 
 	if !wasOnline {
-		log.Printf("INFO: enforcer %q connected", hostname)
+		log.Printf("INFO: enforcer %s@%s connected", user, hostname)
 	}
 }
 

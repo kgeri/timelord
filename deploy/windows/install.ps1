@@ -25,7 +25,7 @@ The metrics port to open in the firewall. Defaults to 9220.
 The Timetower base URL. Defaults to https://timetower.ogreg.org.
 
 .PARAMETER Users
-Comma- or space-separated account names to manage. Defaults to dani.
+Comma- or space-separated account mappings, optionally local=server. Defaults to kissd=dani.
 
 .PARAMETER EnforcerKeyFile
 Path to a file that contains the Enforcer key. The installer copies it to a
@@ -42,14 +42,14 @@ param(
     [string]$ServiceName = 'TimeLord',
     [int]$ListenPort = 9220,
     [string]$TimetowerURL = 'https://timetower.ogreg.org',
-    [string[]]$Users = @('dani'),
+    [string[]]$Users = @('kissd=dani'),
     [string]$EnforcerKeyFile = '',
     [string]$KeyPath = (Join-Path $env:ProgramData 'TimeLord\timetower.key')
 )
 
 $ErrorActionPreference = 'Stop'
 
-# Accept both "-Users dani,alice" and "-Users 'dani alice'".
+# Accept comma- or space-separated values, including local=server mappings.
 $managedUsers = @()
 foreach ($entry in $Users) {
     foreach ($name in ($entry -split '[,\s]+')) {
@@ -101,13 +101,18 @@ if (-not (Test-Path -LiteralPath $BinaryPath)) {
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $target = Join-Path $InstallDir 'timelord.exe'
 
-if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+$serviceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+if ((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $serviceKey)) {
     Write-Host "Removing the existing ${ServiceName} service..."
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
     sc.exe delete $ServiceName | Out-Null
     # The service manager deletes a service asynchronously.
-    for ($i = 0; $i -lt 10 -and (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue); $i++) {
-        Start-Sleep -Milliseconds 500
+    $deadline = (Get-Date).AddSeconds(60)
+    while (((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $serviceKey)) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 250
+    }
+    if ((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $serviceKey)) {
+        throw "service $ServiceName still exists after delete"
     }
 }
 
@@ -151,6 +156,14 @@ New-Service -Name $ServiceName `
     -BinaryPathName $binaryPathName `
     -DisplayName 'TimeLord' `
     -StartupType Automatic | Out-Null
+
+$registeredPath = (Get-CimInstance Win32_Service -Filter "Name='$ServiceName'").PathName
+foreach ($flag in @('-timetower', '-key-file', '-user')) {
+    if ($registeredPath -notlike "*$flag*") {
+        throw "service command line is incomplete: $registeredPath"
+    }
+}
+
 sc.exe description $ServiceName 'TimeLord kid control enforcer' | Out-Null
 # Restart after 5s, 10s, and 30s, then at most once a day.
 sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
@@ -163,4 +176,11 @@ if (-not (Get-NetFirewallRule -DisplayName 'TimeLord metrics' -ErrorAction Silen
 
 Write-Host "Starting the $ServiceName service..."
 Start-Service -Name $ServiceName
+$started = Get-Service -Name $ServiceName -ErrorAction Stop
+$started.WaitForStatus('Running', [TimeSpan]::FromSeconds(10))
+Start-Sleep -Seconds 5
+$started.Refresh()
+if ($started.Status -ne 'Running') {
+    throw "service $ServiceName is not running after start: $($started.Status)"
+}
 Get-Service -Name $ServiceName | Format-Table -AutoSize

@@ -38,8 +38,10 @@ live in [lister_linux.go](../internal/process/lister_linux.go) and
 
 Timetower stores users, policies, reporting hostnames, and usage. The Enforcer
 fetches schedules from Timetower and reports usage back; it does not read or
-write schedule or usage files. See [Timetower.md](Timetower.md) for the
-authoritative model and API.
+write schedule or usage files. An Enforcer `-user local=server` mapping uses the
+local name for session matching and the server name for Timetower schedule,
+status, and usage. See [Timetower.md](Timetower.md) for the authoritative model
+and API.
 
 The enforcement rules remain:
 

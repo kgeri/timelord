@@ -20,10 +20,57 @@ UNINSTALLER_SRC="deploy/windows/uninstall.ps1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="${SCRIPT_DIR}/dist"
 TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
-TIMELORD_USERS="${TIMELORD_USERS:-dani}"
+TIMELORD_USERS="${TIMELORD_USERS:-kissd=dani}"
 SECRETS_FILE="${TIMELORD_SECRETS:-${SCRIPT_DIR}/secrets.env}"
 key_build=""
 trap 'rm -f "$key_build"' EXIT
+
+# Windows OpenSSH may not provide a usable scp when the SSH shell is cmd.exe.
+# SFTP is part of the Windows OpenSSH server, so use it for uploads.
+sftp_put() {
+	local host="$1"
+	local source="$2"
+	local destination="$3"
+	printf 'put "%s" "%s"\n' "$source" "$destination" | sftp -q -b - "$host"
+}
+
+# Remove the old service and binary before uploading the new build. This also
+# clears a stale service registration that points at an incomplete command line.
+wipe_remote() {
+	local host="$1"
+	ssh "$host" 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' <<'POWERSHELL'
+$ErrorActionPreference = 'Stop'
+$serviceName = 'TimeLord'
+$binary = Join-Path (Join-Path $env:ProgramFiles 'TimeLord') 'timelord.exe'
+
+$serviceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($null -ne $service) {
+    if ($service.Status -ne 'Stopped') {
+        Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+        try { $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20)) } catch {}
+    }
+    sc.exe delete $serviceName | Out-Null
+}
+
+# sc.exe delete is asynchronous. Wait for both the service and its registry key
+# to disappear before the installer recreates the same name.
+$deadline = (Get-Date).AddSeconds(60)
+while (((Get-Service -Name $serviceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $serviceKey)) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 250
+}
+if ((Get-Service -Name $serviceName -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $serviceKey)) {
+    throw "service $serviceName still exists after delete"
+}
+
+Get-Process -Name timelord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 250
+
+if (Test-Path -LiteralPath $binary) {
+    Remove-Item -LiteralPath $binary -Force
+}
+POWERSHELL
+}
 
 usage() {
 	echo "usage: $(basename "$0") [--uninstall] [user@]host" >&2
@@ -68,6 +115,19 @@ if [ ! -f "${SCRIPT_DIR}/${INSTALLER_SRC}" ]; then
 	exit 1
 fi
 
+# Resolve the remote profile directory so SFTP and PowerShell use the same
+# absolute paths. The SFTP server uses /C:/Users/... style paths on Windows.
+remote_home=$(ssh "$host" 'cmd /c echo %USERPROFILE%' | tr -d '\r"')
+remote_home=$(printf '%s' "$remote_home" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+case "$remote_home" in
+	[A-Za-z]:*) ;;
+	*)
+		echo "error: cannot determine the remote profile directory" >&2
+		exit 1
+		;;
+esac
+remote_home_sftp="/$(printf '%s' "$remote_home" | sed 's|\\|/|g')"
+
 if [ "$uninstall" = false ]; then
 	if [ ! -f "$SECRETS_FILE" ]; then
 		echo "error: secrets file not found: ${SECRETS_FILE}" >&2
@@ -95,32 +155,46 @@ if [ "$uninstall" = false ]; then
 	mkdir -p "$DIST_DIR"
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
 		-o "${DIST_DIR}/${BINARY_NAME}" ./cmd/timelord
+
+	echo "Removing existing TimeLord service and binary..."
+	wipe_remote "$host"
 fi
+
+remote_uninstaller="${remote_home}\\uninstall.ps1"
+remote_installer="${remote_home}\\install.ps1"
+remote_binary="${remote_home}\\${BINARY_NAME}"
+remote_key="${remote_home}\\timelord.key.new"
 
 if [ "$uninstall" = true ]; then
 	echo "Removing TimeLord from ${host}..."
-	scp "${SCRIPT_DIR}/${UNINSTALLER_SRC}" "${host}:uninstall.ps1"
-	ssh "$host" 'powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1'
-	ssh "$host" 'del /q uninstall.ps1' 2>/dev/null || true
+	sftp_put "$host" "${SCRIPT_DIR}/${UNINSTALLER_SRC}" "${remote_home_sftp}/uninstall.ps1"
+	ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File \"${remote_uninstaller}\""
+	ssh "$host" "cmd /c del /q \"${remote_uninstaller}\"" 2>/dev/null || true
 	echo "Removed TimeLord from ${host}."
 	exit 0
 fi
 
-echo "Copying files to ${host}..."
-scp "${DIST_DIR}/${BINARY_NAME}" "${SCRIPT_DIR}/${INSTALLER_SRC}" "${host}:"
+echo "Copying files to ${host} (${remote_home})..."
+sftp_put "$host" "${DIST_DIR}/${BINARY_NAME}" "${remote_home_sftp}/${BINARY_NAME}"
+sftp_put "$host" "${SCRIPT_DIR}/${INSTALLER_SRC}" "${remote_home_sftp}/install.ps1"
 key_build="$(mktemp)"
 chmod 600 "$key_build"
 printf '%s\n' "$TIMELORD_ENFORCER_KEY" > "$key_build"
-scp "$key_build" "${host}:timelord.key.new"
+sftp_put "$host" "$key_build" "${remote_home_sftp}/timelord.key.new"
 
 echo "Installing TimeLord..."
-if ! ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -TimetowerURL '$TIMETOWER_URL' -Users '$TIMELORD_USERS' -EnforcerKeyFile 'timelord.key.new'"; then
-	echo "error: the installer failed on ${host}; see the output above." >&2
+if ! ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File \"${remote_installer}\" -TimetowerURL \"$TIMETOWER_URL\" -Users \"$TIMELORD_USERS\" -EnforcerKeyFile \"${remote_key}\""; then
 	echo "A permissions error means the SSH session was not elevated: use the" >&2
 	echo "built-in Administrator account, or set LocalAccountTokenFilterPolicy." >&2
+	echo "error: the installer failed on ${host}; see the output above." >&2
 	exit 1
 fi
 
-ssh "$host" "del /q install.ps1 ${BINARY_NAME} timelord.key.new" 2>/dev/null || true
+if ! ssh "$host" "sc.exe query TimeLord" >/dev/null; then
+	echo "error: the TimeLord service was not registered on ${host}" >&2
+	exit 1
+fi
+
+ssh "$host" "cmd /c del /q \"${remote_installer}\" \"${remote_binary}\" \"${remote_key}\"" 2>/dev/null || true
 
 echo "TimeLord is running on ${host}."

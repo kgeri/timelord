@@ -6,13 +6,13 @@
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o timelord.exe ./cmd/timelord
 ```
 
-Run `timelord.exe -timetower https://timetower.ogreg.org -user dani` from a
+Run `timelord.exe -timetower https://timetower.ogreg.org -user kissd=dani` from a
 console with `TIMELORD_ENFORCER_KEY` set, or pass `-key-file` with a protected
 key file. To install it as a LocalSystem service, run the following on the host
 from an elevated session:
 
 ```powershell
-.\install.ps1 -Users 'dani' -EnforcerKeyFile .\timelord.key
+.\install.ps1 -Users 'kissd=dani' -EnforcerKeyFile .\timelord.key
 ```
 
 The installer copies the key to `%ProgramData%\TimeLord\timetower.key` and
@@ -34,7 +34,7 @@ built-in Administrator, or set `LocalAccountTokenFilterPolicy` to 1 under
 The deploy script reads `secrets.env` for `TIMELORD_ENFORCER_KEY`, like the
 Linux script. Set `TIMETOWER_URL` to override the default
 `https://timetower.ogreg.org`, and set `TIMELORD_USERS` to override the default
-`dani` account.
+`kissd=dani` mapping.
 
 Logs are written to `%ProgramData%\TimeLord\timelord.log`. Scope is `system` for
 session 0, system/service accounts, and known Windows component
@@ -60,6 +60,11 @@ Services API (`wtsapi32.dll`) in
 - login, logout, lock, and unlock transitions are logged with the `AUDIT:`
   prefix.
 
-Account names are compared case-insensitively on Windows. Local accounts and
-Microsoft account logins use their Windows account name; domain accounts are not
-supported. The Windows Enforcer does not read any schedule or usage files.
+Account names are compared case-insensitively on Windows. The local part of the
+`-user` mapping is the Windows account name; the server part is the Timetower
+account. For example, `-user kissd=dani` counts Windows `kissd` activity against
+Timetower user `dani`. Local and Microsoft account logins use their Windows
+account name; domain accounts are not supported. The Windows Enforcer does not
+read any schedule or usage files. The binary embeds the IANA time zone database,
+so Timetower time zone names such as `Europe/Budapest` work without installing a
+separate zoneinfo database.

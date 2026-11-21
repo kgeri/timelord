@@ -172,6 +172,95 @@ func TestAgentDoesNotTerminateInactiveOrLockedSessions(t *testing.T) {
 	}
 }
 
+func TestAgentMapsLocalUserToServerAccount(t *testing.T) {
+	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
+	sessions := &fakeSessions{sessions: []session.Session{{
+		ID: "1", User: "kissd", Seat: "Console", Class: "user", Active: true,
+	}}}
+
+	cache := process.NewCache()
+	cache.Set([]process.Process{{
+		PID: 1, User: "kissd", Name: "game", Executable: `C:\\Games\\game.exe`,
+		Scope: process.ScopeApp, MemoryBytes: 100,
+	}})
+	agent := New(Config{
+		Client: client, Sessions: sessions, Processes: cache,
+		Version: "test", Hostname: "test-host",
+		Users: []User{{Local: "kissd", Server: "dani"}},
+		Now:   func() time.Time { return now },
+	})
+
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
+	}
+	if len(client.fetchUsers) != 1 || client.fetchUsers[0] != "dani" {
+		t.Fatalf("fetched users = %v, want [dani]", client.fetchUsers)
+	}
+	if agent.states["dani"] == nil || agent.states["kissd"] != nil {
+		t.Fatalf("states = %v, want only dani", agent.states)
+	}
+
+	agent.enforce(context.Background())
+	now = now.Add(DefaultInterval)
+	agent.enforce(context.Background())
+	if got := agent.states["dani"].local; got != 15 {
+		t.Fatalf("local usage = %d, want 15", got)
+	}
+
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
+	}
+	if len(client.statusUsers) != 1 || client.statusUsers[0] != "dani" {
+		t.Fatalf("status users = %v, want [dani]", client.statusUsers)
+	}
+	if !client.statusRequests[0].Active || client.statusRequests[0].UsageSeconds != 15 {
+		t.Errorf("status request = %+v, want active with 15 seconds", client.statusRequests[0])
+	}
+}
+
+func TestAgentAggregatesMultipleLocalAccountsForOneServerAccount(t *testing.T) {
+	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
+	sessions := &fakeSessions{sessions: []session.Session{
+		{ID: "1", User: "kid-one", Seat: "seat0", Class: "user", Active: true},
+		{ID: "2", User: "kid-two", Seat: "seat0", Class: "user", Active: true},
+	}}
+	agent := New(Config{
+		Client: client, Sessions: sessions, Processes: process.NewCache(),
+		Version: "test", Hostname: "test-host",
+		Users: []User{
+			{Local: "kid-one", Server: "dani"},
+			{Local: "kid-two", Server: "dani"},
+		},
+		Now: func() time.Time { return now },
+	})
+
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
+	}
+	if len(client.fetchUsers) != 1 || client.fetchUsers[0] != "dani" {
+		t.Fatalf("fetched users = %v, want [dani]", client.fetchUsers)
+	}
+
+	agent.enforce(context.Background())
+	now = now.Add(DefaultInterval)
+	agent.enforce(context.Background())
+	if got := agent.states["dani"].local; got != 15 {
+		t.Fatalf("local usage = %d, want 15 (counted once)", got)
+	}
+
+	if err := agent.reportStatuses(context.Background()); err != nil {
+		t.Fatalf("reportStatuses() error = %v", err)
+	}
+	if len(client.statusUsers) != 1 || client.statusUsers[0] != "dani" {
+		t.Fatalf("status users = %v, want [dani]", client.statusUsers)
+	}
+	if got := client.statusRequests[0].SessionCount; got != 2 {
+		t.Errorf("session count = %d, want 2", got)
+	}
+}
+
 func TestAgentDayChangeResetsUsage(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
 	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
@@ -262,7 +351,7 @@ func newTestAgent(t *testing.T, now *time.Time, client Client, sessions session.
 		Processes: cache,
 		Version:   "test",
 		Hostname:  "test-host",
-		Users:     []string{"dani"},
+		Users:     []User{{Local: "dani", Server: "dani"}},
 		Now:       func() time.Time { return *now },
 	})
 }
@@ -295,18 +384,22 @@ type fakeClient struct {
 	statusRevision   int64
 	statusErr        error
 	fetchCount       int
+	fetchUsers       []string
+	statusUsers      []string
 	statusRequests   []timetower.StatusRequest
 }
 
-func (f *fakeClient) FetchSchedule(context.Context, string) (*timetower.Schedule, int64, error) {
+func (f *fakeClient) FetchSchedule(_ context.Context, user string) (*timetower.Schedule, int64, error) {
 	f.fetchCount++
+	f.fetchUsers = append(f.fetchUsers, user)
 	if f.scheduleErr != nil {
 		return nil, 0, f.scheduleErr
 	}
 	return f.schedule, f.scheduleRevision, nil
 }
 
-func (f *fakeClient) SendStatus(_ context.Context, _ string, request timetower.StatusRequest) (*timetower.StatusResponse, int64, error) {
+func (f *fakeClient) SendStatus(_ context.Context, user string, request timetower.StatusRequest) (*timetower.StatusResponse, int64, error) {
+	f.statusUsers = append(f.statusUsers, user)
 	f.statusRequests = append(f.statusRequests, request)
 	if f.statusErr != nil {
 		return nil, 0, f.statusErr

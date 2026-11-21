@@ -34,7 +34,7 @@ type Config struct {
 	Processes *process.Cache
 	Version   string
 	Hostname  string
-	Users     []string
+	Users     []User
 	Interval  time.Duration
 	Now       func() time.Time
 }
@@ -42,15 +42,15 @@ type Config struct {
 // Agent fetches schedules from Timetower, enforces them locally, and reports
 // status back to Timetower. It keeps no schedule or usage files.
 type Agent struct {
-	client    Client
-	sessions  session.SessionSource
-	processes *process.Cache
-	version   string
-	hostname  string
-	users     []string
-	managed   map[string]bool
-	interval  time.Duration
-	now       func() time.Time
+	client      Client
+	sessions    session.SessionSource
+	processes   *process.Cache
+	version     string
+	hostname    string
+	users       []User
+	serverUsers []string
+	interval    time.Duration
+	now         func() time.Time
 
 	loc            *time.Location
 	revision       int64
@@ -88,16 +88,20 @@ func New(config Config) *Agent {
 		now = time.Now
 	}
 
-	users := make([]string, 0, len(config.Users))
-	managed := make(map[string]bool, len(config.Users))
+	users := make([]User, 0, len(config.Users))
+	serverUsers := make([]string, 0, len(config.Users))
+	serverSeen := make(map[string]bool, len(config.Users))
 	states := make(map[string]*userState, len(config.Users))
 	for _, user := range config.Users {
-		if user == "" || managed[user] {
+		if user.Local == "" || user.Server == "" || hasLocalUser(users, user.Local) {
 			continue
 		}
-		managed[user] = true
 		users = append(users, user)
-		states[user] = &userState{}
+		if !serverSeen[user.Server] {
+			serverSeen[user.Server] = true
+			serverUsers = append(serverUsers, user.Server)
+			states[user.Server] = &userState{}
+		}
 	}
 
 	return &Agent{
@@ -107,7 +111,7 @@ func New(config Config) *Agent {
 		version:        config.Version,
 		hostname:       config.Hostname,
 		users:          users,
-		managed:        managed,
+		serverUsers:    serverUsers,
 		interval:       interval,
 		now:            now,
 		loc:            time.UTC,
@@ -129,7 +133,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.hostname == "" {
 		return fmt.Errorf("hostname is empty")
 	}
-	if len(a.users) == 0 {
+	if len(a.serverUsers) == 0 {
 		return fmt.Errorf("no users configured")
 	}
 	if err := a.fetchSchedules(ctx); err != nil {
@@ -174,28 +178,35 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// stateFor returns the configured state for a session user. The session may
-// report a different case for the account name.
-func (a *Agent) stateFor(user string) *userState {
-	if state := a.states[user]; state != nil {
-		return state
-	}
-	for managed, state := range a.states {
-		if session.SameUser(managed, user) {
-			return state
+// serverForLocal returns the Timetower account for a local OS account. Session
+// names are compared with the platform-specific case rules.
+func (a *Agent) serverForLocal(local string) (string, bool) {
+	for _, user := range a.users {
+		if session.SameUser(user.Local, local) {
+			return user.Server, true
 		}
 	}
-	return nil
+	return "", false
 }
 
-// isManaged reports whether user is one of the configured accounts. Windows
-// account names are case-insensitive, so the comparison is platform-specific.
-func (a *Agent) isManaged(user string) bool {
-	if a.managed[user] {
-		return true
+// stateFor returns the Timetower state for a local session account.
+func (a *Agent) stateFor(local string) *userState {
+	server, ok := a.serverForLocal(local)
+	if !ok {
+		return nil
 	}
-	for managed := range a.managed {
-		if session.SameUser(managed, user) {
+	return a.states[server]
+}
+
+// isManaged reports whether a local account is mapped to Timetower.
+func (a *Agent) isManaged(local string) bool {
+	_, ok := a.serverForLocal(local)
+	return ok
+}
+
+func hasLocalUser(users []User, local string) bool {
+	for _, user := range users {
+		if session.SameUser(user.Local, local) {
 			return true
 		}
 	}
@@ -203,7 +214,7 @@ func (a *Agent) isManaged(user string) bool {
 }
 
 func (a *Agent) fetchSchedules(ctx context.Context) error {
-	if len(a.users) == 0 {
+	if len(a.serverUsers) == 0 {
 		return fmt.Errorf("no users configured")
 	}
 	now := a.now().UTC()
@@ -213,8 +224,8 @@ func (a *Agent) fetchSchedules(ctx context.Context) error {
 		schedule *timetower.Schedule
 		revision int64
 	}
-	fetched := make([]fetchedSchedule, 0, len(a.users))
-	for _, user := range a.users {
+	fetched := make([]fetchedSchedule, 0, len(a.serverUsers))
+	for _, user := range a.serverUsers {
 		schedule, revision, err := a.client.FetchSchedule(ctx, user)
 		if err != nil {
 			return fmt.Errorf("user %s: %w", user, err)
@@ -256,7 +267,7 @@ func (a *Agent) fetchSchedules(ctx context.Context) error {
 	}
 	a.lastContact = now
 
-	log.Printf("schedule: revision %d, %d user(s)", a.revision, len(a.users))
+	log.Printf("schedule: revision %d, %d account(s)", a.revision, len(a.serverUsers))
 	return nil
 }
 
@@ -275,8 +286,8 @@ func (a *Agent) enforce(ctx context.Context) {
 	a.lastSessions = sessions
 
 	elapsed := a.elapsed(now)
-	for _, user := range a.users {
-		if hasActiveSession(sessions, user) {
+	for _, user := range a.serverUsers {
+		if a.hasActiveSession(sessions, user) {
 			a.states[user].local += int64(elapsed / time.Second)
 		}
 	}
@@ -304,7 +315,7 @@ func (a *Agent) reportStatuses(ctx context.Context) error {
 	var firstErr error
 	refresh := false
 
-	for _, user := range a.users {
+	for _, user := range a.serverUsers {
 		state := a.states[user]
 		request := a.statusRequest(user, state, now, processes)
 		sentLocal := state.local
@@ -335,7 +346,7 @@ func (a *Agent) reportStatuses(ctx context.Context) error {
 }
 
 func (a *Agent) statusRequest(user string, state *userState, now time.Time, processes []timetower.ProcessStat) timetower.StatusRequest {
-	sessions := sessionsForUser(a.lastSessions, user)
+	sessions := a.sessionsForServer(a.lastSessions, user)
 	active, locked := sessionState(sessions)
 
 	return timetower.StatusRequest{
@@ -533,23 +544,32 @@ func logAudit(event string, s session.Session) {
 		event, s.User, s.ID, s.Seat, s.Remote, s.Class)
 }
 
-func hasActiveSession(sessions []session.Session, user string) bool {
+func (a *Agent) hasActiveSession(sessions []session.Session, server string) bool {
 	for _, sess := range sessions {
-		if session.SameUser(sess.User, user) && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
+		if a.sessionMatchesServer(sess.User, server) && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
 			return true
 		}
 	}
 	return false
 }
 
-func sessionsForUser(sessions []session.Session, user string) []session.Session {
+func (a *Agent) sessionsForServer(sessions []session.Session, server string) []session.Session {
 	var out []session.Session
 	for _, sess := range sessions {
-		if session.SameUser(sess.User, user) {
+		if a.sessionMatchesServer(sess.User, server) {
 			out = append(out, sess)
 		}
 	}
 	return out
+}
+
+func (a *Agent) sessionMatchesServer(local, server string) bool {
+	for _, user := range a.users {
+		if user.Server == server && session.SameUser(user.Local, local) {
+			return true
+		}
+	}
+	return false
 }
 
 func sessionState(sessions []session.Session) (active, locked bool) {

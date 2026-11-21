@@ -46,13 +46,28 @@ The Enforcer daemon is built from `cmd/timelord`:
 
 ```sh
 go build -o timelord ./cmd/timelord
-sudo env TIMELORD_ENFORCER_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani
+sudo env TIMELORD_ENFORCER_KEY=... ./timelord -timetower https://timetower.ogreg.org -user dani=dani
 curl http://127.0.0.1:9220/metrics
 ```
 
 TimeLord needs root on Linux or LocalSystem on Windows to read other users'
 processes. It runs a power-on self-test at startup and refuses to start when a
 check fails; run it alone with `-selftest` (exits non-zero on failure).
+
+### Deploying enforcers
+
+`deploy-enforcers.sh` runs the Linux and Windows deploy scripts for the hosts
+listed in the script's recipe:
+
+```sh
+./deploy-enforcers.sh
+./deploy-enforcers.sh --uninstall
+```
+
+The script invokes `sudo` only for the Linux deploy and keeps the Windows deploy
+on your account so it can use your SSH aliases. It prints `[OK]` or
+`[FAIL] <error>` per host and exits non-zero if any host fails. The server-side
+part of each `local=server` mapping must exist in Timetower's configuration.
 
 ## Metrics
 
@@ -63,7 +78,8 @@ the address). See [docs/Model.md](docs/Model.md).
 
 The Enforcer fetches its schedule from Timetower on startup and reports status
 at the interval Timetower provides. Timetower is the source of truth; the
-Enforcer reads no schedule or usage files from user home directories.
+Enforcer reads no schedule or usage files from user home directories. Use
+`-user local=server` to map a host's local account to a Timetower account.
 
 On Linux, denied local sessions are logged out via `systemd-logind`; remote
 sessions such as SSH are ignored. On Windows, denied active sessions are logged

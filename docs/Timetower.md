@@ -50,8 +50,11 @@ The configuration contains users and their policies:
 }
 ```
 
-A user with an invalid or missing policy is denied. There is no separate
-Enforcer-to-account mapping.
+A user with an invalid or missing policy is denied. Timetower accounts are the
+names Enforcers use for schedule and status requests. An Enforcer may map a
+local OS account to a server account with `-user local=server`; the local name is
+used only for session matching on that host. A plain `-user name` is shorthand
+for `name=name`.
 
 ## Authentication
 
@@ -94,7 +97,8 @@ every request.
 
 ### User and policy
 
-A user is an OS account name, for example `dani`. A user has an optional policy:
+A Timetower user is a server-side account name, for example `dani`. A user has an
+optional policy:
 
 - `enabled` turns the policy on or off.
 - `windows` lists permitted weekly intervals, each with the daily limit for its
@@ -187,11 +191,12 @@ lost after three status intervals.
 ## Enforcer lifecycle
 
 1. The Enforcer starts with its Timetower URL, Enforcer key, hostname, and list of
-   managed users.
-2. It fetches each user's schedule from `GET /api/v1/schedule/{user}`. A failed
-   initial fetch is a startup failure.
+   managed user mappings. Each mapping is either `local=server` or a plain
+   account name.
+2. It fetches each server account's schedule from
+   `GET /api/v1/schedule/{server}`. A failed initial fetch is a startup failure.
 3. It starts enforcement and status timers.
-4. It sends `PUT /api/v1/status/{user}` for each user every
+4. It sends `PUT /api/v1/status/{server}` for each server account every
    `status_interval_seconds`.
 5. It fetches schedules again when `X-Schedule-Revision` changes.
 6. It sends final status requests during clean shutdown.
@@ -207,6 +212,11 @@ A user is allowed when all of these are true:
 4. There is no daily limit, or estimated usage is below the limit.
 
 Otherwise the user is denied.
+
+The Enforcer matches sessions by the local part of each mapping and applies the
+policy and usage of the mapped Timetower account. Multiple local accounts may
+map to the same server account; usage is counted once while any mapped local
+session is active.
 
 The Enforcer evaluates this locally on every enforcement tick. The `allowed`
 field in the status response is advisory; a missed status request does not grant
@@ -314,4 +324,5 @@ run as root.
 
 On Linux, `deploy-enforcer-linux.sh` installs `/etc/timelord.env` with mode
 `0600`, and the systemd unit loads it with `EnvironmentFile`. Set
-`TIMELORD_USERS` on the deploy command to override the default `dani` account.
+`TIMELORD_USERS` on the deploy command to override the default `dani=dani`
+mapping.

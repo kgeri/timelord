@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	_ "time/tzdata" // embed IANA time zone data for Windows deployments
 
 	"timelord/internal/enforcer"
 	"timelord/internal/metrics"
@@ -25,7 +26,7 @@ func main() {
 	keyFile := flag.String("key-file", "", "read the Enforcer key from this file (default: TIMELORD_ENFORCER_KEY_FILE)")
 	selfTestOnly := flag.Bool("selftest", false, "run the startup self-test and exit")
 	var users userList
-	flag.Var(&users, "user", "account to manage; repeat the flag for multiple users")
+	flag.Var(&users, "user", "account to manage; use local=server to map accounts; repeatable")
 	flag.Parse()
 
 	if *selfTestOnly {
@@ -122,18 +123,22 @@ func loadEnforcerKey(path string) (string, error) {
 }
 
 // userList collects a repeatable -user flag.
-type userList []string
+type userList []enforcer.User
 
 func (u *userList) String() string {
-	return strings.Join(*u, ",")
+	values := make([]string, len(*u))
+	for i, user := range *u {
+		values[i] = user.String()
+	}
+	return strings.Join(values, ",")
 }
 
 func (u *userList) Set(value string) error {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return fmt.Errorf("user must not be empty")
+	user, err := enforcer.ParseUser(value)
+	if err != nil {
+		return err
 	}
-	*u = append(*u, value)
+	*u = append(*u, user)
 	return nil
 }
 
