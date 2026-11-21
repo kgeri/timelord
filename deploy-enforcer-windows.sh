@@ -14,15 +14,16 @@
 
 set -euo pipefail
 
-# TODO: pass TIMELORD_ENFORCER_KEY to a protected Windows service environment or key
-# file when Windows Enforcers are supported.
-
 BINARY_NAME="timelord.exe"
 INSTALLER_SRC="deploy/windows/install.ps1"
 UNINSTALLER_SRC="deploy/windows/uninstall.ps1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="${SCRIPT_DIR}/dist"
 TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
+TIMELORD_USERS="${TIMELORD_USERS:-dani}"
+SECRETS_FILE="${TIMELORD_SECRETS:-${SCRIPT_DIR}/secrets.env}"
+key_build=""
+trap 'rm -f "$key_build"' EXIT
 
 usage() {
 	echo "usage: $(basename "$0") [--uninstall] [user@]host" >&2
@@ -68,6 +69,22 @@ if [ ! -f "${SCRIPT_DIR}/${INSTALLER_SRC}" ]; then
 fi
 
 if [ "$uninstall" = false ]; then
+	if [ ! -f "$SECRETS_FILE" ]; then
+		echo "error: secrets file not found: ${SECRETS_FILE}" >&2
+		exit 1
+	fi
+	secret_mode=$(stat -c '%a' "$SECRETS_FILE" 2>/dev/null || true)
+	if [ "$secret_mode" != "600" ] && [ "$secret_mode" != "400" ]; then
+		echo "error: ${SECRETS_FILE} must be mode 0600 or 0400 (currently ${secret_mode:-unknown})" >&2
+		exit 1
+	fi
+	# shellcheck disable=SC1090
+	. "$SECRETS_FILE"
+	if [ -z "${TIMELORD_ENFORCER_KEY:-}" ]; then
+		echo "error: TIMELORD_ENFORCER_KEY is empty or missing in ${SECRETS_FILE}" >&2
+		exit 1
+	fi
+
 	echo "Running checks..."
 	cd "$SCRIPT_DIR"
 	go vet ./...
@@ -91,15 +108,19 @@ fi
 
 echo "Copying files to ${host}..."
 scp "${DIST_DIR}/${BINARY_NAME}" "${SCRIPT_DIR}/${INSTALLER_SRC}" "${host}:"
+key_build="$(mktemp)"
+chmod 600 "$key_build"
+printf '%s\n' "$TIMELORD_ENFORCER_KEY" > "$key_build"
+scp "$key_build" "${host}:timelord.key.new"
 
 echo "Installing TimeLord..."
-if ! ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -TimetowerURL '$TIMETOWER_URL'"; then
+if ! ssh "$host" "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -TimetowerURL '$TIMETOWER_URL' -Users '$TIMELORD_USERS' -EnforcerKeyFile 'timelord.key.new'"; then
 	echo "error: the installer failed on ${host}; see the output above." >&2
 	echo "A permissions error means the SSH session was not elevated: use the" >&2
 	echo "built-in Administrator account, or set LocalAccountTokenFilterPolicy." >&2
 	exit 1
 fi
 
-ssh "$host" "del /q install.ps1 ${BINARY_NAME}" 2>/dev/null || true
+ssh "$host" "del /q install.ps1 ${BINARY_NAME} timelord.key.new" 2>/dev/null || true
 
 echo "TimeLord is running on ${host}."

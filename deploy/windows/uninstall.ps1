@@ -15,11 +15,16 @@ The install directory to delete. Defaults to %ProgramFiles%\TimeLord.
 
 .PARAMETER KeepFiles
 Keep the install directory instead of deleting it.
+
+.PARAMETER KeyPath
+The protected key file to remove. Defaults to
+%ProgramData%\TimeLord\timetower.key.
 #>
 [CmdletBinding()]
 param(
     [string]$ServiceName = 'TimeLord',
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'TimeLord'),
+    [string]$KeyPath = (Join-Path $env:ProgramData 'TimeLord\timetower.key'),
     [switch]$KeepFiles
 )
 
@@ -37,6 +42,11 @@ if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
 }
 
 Remove-NetFirewallRule -DisplayName 'TimeLord metrics' -ErrorAction SilentlyContinue
+
+if (Test-Path -LiteralPath $KeyPath) {
+    Write-Host "Deleting $KeyPath..."
+    Remove-Item -LiteralPath $KeyPath -Force
+}
 
 if (-not $KeepFiles) {
     Write-Host "Deleting $InstallDir..."

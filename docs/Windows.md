@@ -6,12 +6,18 @@
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o timelord.exe ./cmd/timelord
 ```
 
-Run `timelord.exe -timetower https://timetower.ogreg.org` from a console, or
-install it as a LocalSystem service. On the host, from an elevated session:
+Run `timelord.exe -timetower https://timetower.ogreg.org -user dani` from a
+console with `TIMELORD_ENFORCER_KEY` set, or pass `-key-file` with a protected
+key file. To install it as a LocalSystem service, run the following on the host
+from an elevated session:
 
 ```powershell
-.\install.ps1
+.\install.ps1 -Users 'dani' -EnforcerKeyFile .\timelord.key
 ```
+
+The installer copies the key to `%ProgramData%\TimeLord\timetower.key` and
+restricts its ACL to LocalSystem and the Administrators group. It registers the
+service with the configured users.
 
 ## Deploy over SSH
 
@@ -25,16 +31,35 @@ built-in Administrator, or set `LocalAccountTokenFilterPolicy` to 1 under
 ./deploy-enforcer-windows.sh --uninstall [user@]host
 ```
 
-Set `TIMETOWER_URL` to override the default
-`https://timetower.ogreg.org`.
+The deploy script reads `secrets.env` for `TIMELORD_ENFORCER_KEY`, like the
+Linux script. Set `TIMETOWER_URL` to override the default
+`https://timetower.ogreg.org`, and set `TIMELORD_USERS` to override the default
+`dani` account.
 
-Logs at `%ProgramData%\TimeLord\timelord.log`. Scope is `system` for session 0,
-system/service accounts, and known Windows component paths/packages. See
-[install.ps1](../deploy/windows/install.ps1), [lister_windows.go](../internal/process/lister_windows.go).
+Logs are written to `%ProgramData%\TimeLord\timelord.log`. Scope is `system` for
+session 0, system/service accounts, and known Windows component
+paths/packages. See [install.ps1](../deploy/windows/install.ps1) and
+[lister_windows.go](../internal/process/lister_windows.go).
 
-Schedule enforcement is currently Linux-only; Windows still exposes the
-process metrics. The installer registers the service with the Timetower URL,
-but the Timetower agent is not started without a session source.
+## Schedule enforcement
 
-TODO: Windows Enforcers will need a protected key file or service
-environment before the Timetower client is enabled.
+The Enforcer fetches each configured user's schedule from Timetower and enforces
+it locally, like the Linux Enforcer. Windows sessions come from the Terminal
+Services API (`wtsapi32.dll`) in
+[session_windows.go](../internal/session/session_windows.go):
+
+- sessions are discovered with `WTSEnumerateSessions` and
+  `WTSQuerySessionInformation`;
+- every logged-on user session is treated as local; RDP/console distinction is
+  not tracked;
+- only active, unlocked sessions count toward the daily limit;
+- session 0 (services) and sessions without a logged-on user are skipped;
+- when a counted active session is denied, it is logged off with
+  `WTSLogoffSession`. This closes the user's programs, matching the Linux
+  `loginctl terminate-session` behavior;
+- login, logout, lock, and unlock transitions are logged with the `AUDIT:`
+  prefix.
+
+Account names are compared case-insensitively on Windows. Local accounts and
+Microsoft account logins use their Windows account name; domain accounts are not
+supported. The Windows Enforcer does not read any schedule or usage files.

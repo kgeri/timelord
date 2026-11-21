@@ -174,6 +174,34 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// stateFor returns the configured state for a session user. The session may
+// report a different case for the account name.
+func (a *Agent) stateFor(user string) *userState {
+	if state := a.states[user]; state != nil {
+		return state
+	}
+	for managed, state := range a.states {
+		if session.SameUser(managed, user) {
+			return state
+		}
+	}
+	return nil
+}
+
+// isManaged reports whether user is one of the configured accounts. Windows
+// account names are case-insensitive, so the comparison is platform-specific.
+func (a *Agent) isManaged(user string) bool {
+	if a.managed[user] {
+		return true
+	}
+	for managed := range a.managed {
+		if session.SameUser(managed, user) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Agent) fetchSchedules(ctx context.Context) error {
 	if len(a.users) == 0 {
 		return fmt.Errorf("no users configured")
@@ -254,10 +282,10 @@ func (a *Agent) enforce(ctx context.Context) {
 	}
 
 	for _, sess := range sessions {
-		if sess.ID == "" || !session.IsLocalSession(sess) || !a.managed[sess.User] {
+		if sess.ID == "" || !session.IsCountedSession(sess) || !sess.Active || sess.Locked || !a.isManaged(sess.User) {
 			continue
 		}
-		state := a.states[sess.User]
+		state := a.stateFor(sess.User)
 		if a.allowed(state, now) {
 			continue
 		}
@@ -466,7 +494,7 @@ func (a *Agent) clearReportError() {
 func (a *Agent) auditSessions(sessions []session.Session) {
 	current := make(map[string]session.Session)
 	for _, sess := range sessions {
-		if sess.ID == "" || !a.managed[sess.User] {
+		if sess.ID == "" || !a.isManaged(sess.User) {
 			continue
 		}
 		current[sess.ID] = sess
@@ -507,7 +535,7 @@ func logAudit(event string, s session.Session) {
 
 func hasActiveSession(sessions []session.Session, user string) bool {
 	for _, sess := range sessions {
-		if sess.User == user && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
+		if session.SameUser(sess.User, user) && session.IsCountedSession(sess) && sess.Active && !sess.Locked {
 			return true
 		}
 	}
@@ -517,7 +545,7 @@ func hasActiveSession(sessions []session.Session, user string) bool {
 func sessionsForUser(sessions []session.Session, user string) []session.Session {
 	var out []session.Session
 	for _, sess := range sessions {
-		if sess.User == user {
+		if session.SameUser(sess.User, user) {
 			out = append(out, sess)
 		}
 	}

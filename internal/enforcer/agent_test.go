@@ -152,6 +152,26 @@ func TestAgentTerminatesDeniedSession(t *testing.T) {
 	}
 }
 
+func TestAgentDoesNotTerminateInactiveOrLockedSessions(t *testing.T) {
+	now := time.Date(2024, time.June, 3, 20, 0, 0, 0, time.UTC)
+	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}
+	sessions := &fakeSessions{sessions: []session.Session{
+		{ID: "1", User: "dani", Seat: "seat0", Class: "user", Active: false},
+		{ID: "2", User: "dani", Seat: "seat0", Class: "user", Active: true, Locked: true},
+		{ID: "3", User: "dani", Seat: "seat0", Class: "greeter", Active: true},
+	}}
+	agent := newTestAgent(t, &now, client, sessions)
+
+	if err := agent.fetchSchedules(context.Background()); err != nil {
+		t.Fatalf("fetchSchedules() error = %v", err)
+	}
+	agent.enforce(context.Background())
+
+	if len(sessions.terminated) != 0 {
+		t.Fatalf("terminated = %v, want no sessions", sessions.terminated)
+	}
+}
+
 func TestAgentDayChangeResetsUsage(t *testing.T) {
 	now := time.Date(2024, time.June, 3, 10, 0, 0, 0, time.UTC)
 	client := &fakeClient{schedule: testSchedule(t, now), scheduleRevision: 42, statusRevision: 42}

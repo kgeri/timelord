@@ -22,6 +22,7 @@ const enforcerVersion = "0.2.0"
 func main() {
 	listen := flag.String("listen", "0.0.0.0:9220", "address for the metrics endpoint")
 	timetowerURL := flag.String("timetower", "https://timetower.ogreg.org", "Timetower base URL")
+	keyFile := flag.String("key-file", "", "read the Enforcer key from this file (default: TIMELORD_ENFORCER_KEY_FILE)")
 	selfTestOnly := flag.Bool("selftest", false, "run the startup self-test and exit")
 	var users userList
 	flag.Var(&users, "user", "account to manage; repeat the flag for multiple users")
@@ -64,9 +65,9 @@ func main() {
 		if len(users) == 0 {
 			return fmt.Errorf("no -user option given")
 		}
-		enforcerKey := os.Getenv("TIMELORD_ENFORCER_KEY")
-		if enforcerKey == "" {
-			return fmt.Errorf("TIMELORD_ENFORCER_KEY is not set")
+		enforcerKey, err := loadEnforcerKey(*keyFile)
+		if err != nil {
+			return err
 		}
 		hostname := strings.TrimSpace(os.Getenv("TIMELORD_HOSTNAME"))
 		if hostname == "" {
@@ -92,6 +93,32 @@ func main() {
 		log.Println("TimeLord stopped")
 		return nil
 	})
+}
+
+// loadEnforcerKey returns the Enforcer key from an explicit file, the
+// TIMELORD_ENFORCER_KEY_FILE file, or the TIMELORD_ENFORCER_KEY environment
+// variable, in that order.
+func loadEnforcerKey(path string) (string, error) {
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("TIMELORD_ENFORCER_KEY_FILE"))
+	}
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read Enforcer key file: %w", err)
+		}
+		key := strings.TrimSpace(string(data))
+		if key == "" {
+			return "", fmt.Errorf("Enforcer key file %s is empty", path)
+		}
+		return key, nil
+	}
+
+	key := strings.TrimSpace(os.Getenv("TIMELORD_ENFORCER_KEY"))
+	if key == "" {
+		return "", fmt.Errorf("TIMELORD_ENFORCER_KEY is not set and no key file was given")
+	}
+	return key, nil
 }
 
 // userList collects a repeatable -user flag.

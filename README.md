@@ -66,8 +66,9 @@ at the interval Timetower provides. Timetower is the source of truth; the
 Enforcer reads no schedule or usage files from user home directories.
 
 On Linux, denied local sessions are logged out via `systemd-logind`; remote
-sessions such as SSH are ignored. The admin listing is available with the admin
-Basic credentials:
+sessions such as SSH are ignored. On Windows, denied active sessions are logged
+off through the Terminal Services API. The admin listing is available with the
+admin Basic credentials:
 
 ```sh
 curl -u "admin:$TIMELORD_ADMIN_PASSWORD" https://timetower.ogreg.org/api/v1/enforcers

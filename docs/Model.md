@@ -58,6 +58,14 @@ written to the log with an `AUDIT:` prefix. The agent loop lives in
 [internal/enforcer](../internal/enforcer); the platform session source lives in
 [internal/session](../internal/session).
 
+On Windows, sessions come from the Terminal Services API. Every logged-on user
+session is treated as local; RDP/console distinction is not tracked. A counted
+session is active and unlocked, and session 0 (services) is skipped. Denied
+counted sessions are logged off with `WTSLogoffSession`, which closes the user's
+programs as the Linux session termination does. Windows account names are
+compared case-insensitively, and local and Microsoft account logins are
+supported by account name.
+
 The remaining daily time for every reporting hostname is available from the
 public `GET /api/v1/enforcers` endpoint; it is no longer exported as a
 Prometheus metric.
