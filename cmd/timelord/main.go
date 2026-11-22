@@ -7,10 +7,12 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 	_ "time/tzdata" // embed IANA time zone data for Windows deployments
 
 	"timelord/internal/enforcer"
 	"timelord/internal/metrics"
+	"timelord/internal/notify"
 	"timelord/internal/process"
 	"timelord/internal/scheduler"
 	"timelord/internal/selftest"
@@ -25,9 +27,30 @@ func main() {
 	timetowerURL := flag.String("timetower", "https://timetower.ogreg.org", "Timetower base URL")
 	keyFile := flag.String("key-file", "", "read the Enforcer key from this file (default: TIMELORD_ENFORCER_KEY_FILE)")
 	selfTestOnly := flag.Bool("selftest", false, "run the startup self-test and exit")
+	notifyChild := flag.Bool("notify", false, "internal: show a notification in the current session and exit")
+	notifyKind := flag.String("notify-kind", string(notify.KindLimit), "internal: limit or window")
+	notifyMinutes := flag.Int("notify-minutes", 5, "internal: minutes remaining for the notice")
+	notifyTest := flag.Bool("notify-test", false, "send a test notification to active local sessions and exit")
 	var users userList
 	flag.Var(&users, "user", "account to manage; use local=server to map accounts; repeatable")
 	flag.Parse()
+
+	if *notifyChild {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := notify.RunChild(ctx, *notifyKind, *notifyMinutes); err != nil {
+			log.Printf("notify: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *notifyTest {
+		if err := runNotifyTest(*notifyKind, *notifyMinutes); err != nil {
+			log.Fatalf("notify test: %v", err)
+		}
+		return
+	}
 
 	if *selfTestOnly {
 		runSelfTest(*listen)
@@ -83,6 +106,7 @@ func main() {
 			Client:    timetower.NewClient(*timetowerURL, enforcerVersion, enforcerKey),
 			Sessions:  sessionSource,
 			Processes: cache,
+			Notifier:  notify.New(),
 			Version:   enforcerVersion,
 			Hostname:  hostname,
 			Users:     users,
@@ -139,6 +163,43 @@ func (u *userList) Set(value string) error {
 		return err
 	}
 	*u = append(*u, user)
+	return nil
+}
+
+// runNotifyTest sends one notice to every active local session. It is a
+// debugging aid for the service-to-session launch path.
+func runNotifyTest(kind string, minutes int) error {
+	notice, err := notify.NewNotice(kind, minutes)
+	if err != nil {
+		return err
+	}
+	source, err := session.NewSessionSource()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	sessions, err := source.Sessions(ctx)
+	if err != nil {
+		return err
+	}
+
+	notifier := notify.New()
+	sent := 0
+	for _, sess := range sessions {
+		if sess.ID == "" || !session.IsCountedSession(sess) || !sess.Active || sess.Locked {
+			continue
+		}
+		if err := notifier.Notify(ctx, sess, notice); err != nil {
+			log.Printf("WARN: notify user=%q session=%s: %v", sess.User, sess.ID, err)
+			continue
+		}
+		log.Printf("NOTIFY: user=%q session=%s kind=%s minutes=%d", sess.User, sess.ID, kind, minutes)
+		sent++
+	}
+	if sent == 0 {
+		return fmt.Errorf("no active local sessions found")
+	}
 	return nil
 }
 

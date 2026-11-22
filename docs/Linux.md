@@ -25,6 +25,21 @@ logout, lock, and unlock transitions for managed users are logged with an
 `AUDIT:` prefix. The sources are [internal/enforcer](../internal/enforcer) and
 [internal/session](../internal/session).
 
+## Notifications
+
+The Enforcer sends a short, silent notification when a child's daily limit or
+time window is about to end. Because the service runs as root, the Linux
+notifier re-executes the binary as the session user and calls the freedesktop
+notification service on that user's session bus. See
+[internal/notify](../internal/notify) and the threshold handling in
+[internal/enforcer/agent.go](../internal/enforcer/agent.go).
+
+Send a test notice to every active local session with:
+
+```sh
+sudo /usr/local/bin/timelord -notify-test
+```
+
 ## Deploy
 
 [deploy-enforcer-linux.sh](../deploy-enforcer-linux.sh) builds the binary,

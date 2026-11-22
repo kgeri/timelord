@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/cucumber/godog v0.16.0
 	github.com/cucumber/messages/go/v34 v34.2.0
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/prometheus/client_golang v1.14.0
 	golang.org/x/sys v0.4.0
 )

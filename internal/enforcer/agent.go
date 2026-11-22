@@ -7,6 +7,8 @@ import (
 	"log"
 	"time"
 
+	"timelord/internal/notify"
+	"timelord/internal/policy"
 	"timelord/internal/process"
 	"timelord/internal/session"
 	"timelord/internal/timetower"
@@ -21,6 +23,24 @@ const (
 	dateLayout = "2006-01-02"
 )
 
+// Notice thresholds in minutes, sorted from the most urgent. A threshold is
+// sent once per user, day, and limit; a zero means the limit or window is up.
+var (
+	limitNoticeMinutes  = []int{0, 5, 15}
+	windowNoticeMinutes = []int{5, 10}
+)
+
+// weekdayDays maps Go weekdays to schedule days.
+var weekdayDays = [...]policy.Day{
+	policy.Sunday,
+	policy.Monday,
+	policy.Tuesday,
+	policy.Wednesday,
+	policy.Thursday,
+	policy.Friday,
+	policy.Saturday,
+}
+
 // Client is the subset of the Timetower client used by the agent.
 type Client interface {
 	FetchSchedule(context.Context, string) (*timetower.Schedule, int64, error)
@@ -32,6 +52,7 @@ type Config struct {
 	Client    Client
 	Sessions  session.SessionSource
 	Processes *process.Cache
+	Notifier  notify.Notifier
 	Version   string
 	Hostname  string
 	Users     []User
@@ -45,6 +66,7 @@ type Agent struct {
 	client      Client
 	sessions    session.SessionSource
 	processes   *process.Cache
+	notifier    notify.Notifier
 	version     string
 	hostname    string
 	users       []User
@@ -60,7 +82,8 @@ type Agent struct {
 	lastTick       time.Time
 	day            string
 
-	states map[string]*userState
+	states   map[string]*userState
+	notified map[string]bool
 
 	lastSessions []session.Session
 	lastAudited  map[string]session.Session
@@ -108,6 +131,7 @@ func New(config Config) *Agent {
 		client:         config.Client,
 		sessions:       config.Sessions,
 		processes:      config.Processes,
+		notifier:       config.Notifier,
 		version:        config.Version,
 		hostname:       config.Hostname,
 		users:          users,
@@ -117,6 +141,7 @@ func New(config Config) *Agent {
 		loc:            time.UTC,
 		statusInterval: DefaultStatusInterval,
 		states:         states,
+		notified:       make(map[string]bool),
 		lastAudited:    make(map[string]session.Session),
 	}
 }
@@ -292,6 +317,8 @@ func (a *Agent) enforce(ctx context.Context) {
 		}
 	}
 
+	a.notifyDue(ctx, sessions, now)
+
 	for _, sess := range sessions {
 		if sess.ID == "" || !session.IsCountedSession(sess) || !sess.Active || sess.Locked || !a.isManaged(sess.User) {
 			continue
@@ -421,7 +448,126 @@ func (a *Agent) setDay(day string) {
 		state.reported = 0
 		state.aggregate = 0
 	}
+	a.notified = make(map[string]bool)
 	a.day = day
+}
+
+// notifyDue sends the next due reminder to one live session per user. Locked,
+// inactive, remote, and unmanaged sessions are skipped.
+func (a *Agent) notifyDue(ctx context.Context, sessions []session.Session, now time.Time) {
+	if a.notifier == nil {
+		return
+	}
+	// A session denied by the offline grace is logged off for connectivity, not
+	// for running out of time, so do not send a misleading reminder.
+	if a.offlineGrace > 0 && !a.lastContact.IsZero() && now.Sub(a.lastContact) > a.offlineGrace {
+		return
+	}
+
+	seen := make(map[string]bool, len(a.serverUsers))
+	for _, sess := range sessions {
+		if sess.ID == "" || !session.IsCountedSession(sess) || !sess.Active || sess.Locked {
+			continue
+		}
+		server, ok := a.serverForLocal(sess.User)
+		if !ok || seen[server] {
+			continue
+		}
+		state := a.states[server]
+		if state == nil || state.policy == nil || !state.policy.Enabled {
+			continue
+		}
+		if !state.policy.InsideWindow(now, a.loc) {
+			continue
+		}
+		seen[server] = true
+
+		a.notifyLimit(ctx, sess, server, state)
+		a.notifyWindow(ctx, sess, server, state, now)
+	}
+}
+
+// notifyLimit warns about the daily usage limit. Unlimited days are skipped.
+func (a *Agent) notifyLimit(ctx context.Context, sess session.Session, server string, state *userState) {
+	limit := state.policy.DailyLimitSeconds
+	if limit <= 0 {
+		return
+	}
+	remaining := limit - a.estimated(state)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if minutes, ok := a.dueNotice(notify.KindLimit, server, limit, remaining, limitNoticeMinutes); ok {
+		a.sendNotice(ctx, sess, server, notify.Notice{Kind: notify.KindLimit, Minutes: minutes})
+	}
+}
+
+// notifyWindow warns about the end of the current permitted window.
+func (a *Agent) notifyWindow(ctx context.Context, sess session.Session, server string, state *userState, now time.Time) {
+	remaining, ok := windowRemaining(now, state.policy, a.loc)
+	if !ok {
+		return
+	}
+	seconds := int64(remaining / time.Second)
+	if minutes, ok := a.dueNotice(notify.KindWindow, server, 0, seconds, windowNoticeMinutes); ok {
+		a.sendNotice(ctx, sess, server, notify.Notice{Kind: notify.KindWindow, Minutes: minutes})
+	}
+}
+
+// dueNotice returns the most urgent unsent threshold that has been reached and
+// marks all less urgent thresholds as sent. This avoids replaying 15 and 5
+// minutes when the Enforcer starts with only 3 minutes left.
+func (a *Agent) dueNotice(kind notify.Kind, user string, limit, remaining int64, thresholds []int) (int, bool) {
+	for _, threshold := range thresholds {
+		if a.notified[noticeKey(user, kind, limit, threshold)] {
+			continue
+		}
+		if remaining > int64(threshold)*60 {
+			continue
+		}
+		for _, lessUrgent := range thresholds {
+			if lessUrgent >= threshold {
+				a.notified[noticeKey(user, kind, limit, lessUrgent)] = true
+			}
+		}
+		return threshold, true
+	}
+	return 0, false
+}
+
+func noticeKey(user string, kind notify.Kind, limit int64, threshold int) string {
+	return fmt.Sprintf("%s|%s|%d|%d", user, kind, limit, threshold)
+}
+
+func (a *Agent) sendNotice(ctx context.Context, sess session.Session, user string, notice notify.Notice) {
+	if err := a.notifier.Notify(ctx, sess, notice); err != nil {
+		log.Printf("WARN: notify user=%q session=%s: %v", user, sess.ID, err)
+		return
+	}
+	log.Printf("NOTIFY: user=%q session=%s kind=%s minutes=%d", user, sess.ID, notice.Kind, notice.Minutes)
+}
+
+// windowRemaining returns the time until the current window ends.
+func windowRemaining(now time.Time, p *timetower.Policy, loc *time.Location) (time.Duration, bool) {
+	if p == nil || !p.Enabled {
+		return 0, false
+	}
+	local := now.In(loc)
+	day := weekdayDays[int(local.Weekday())]
+	clock := policy.Clock(local.Hour()*60 + local.Minute())
+	for _, window := range p.Windows {
+		if window.Day != day || clock < window.Start || clock >= window.End {
+			continue
+		}
+		end := time.Date(local.Year(), local.Month(), local.Day(),
+			int(window.End)/60, int(window.End)%60, 0, 0, loc)
+		remaining := end.Sub(now)
+		if remaining < 0 {
+			remaining = 0
+		}
+		return remaining, true
+	}
+	return 0, false
 }
 
 func (a *Agent) allowed(state *userState, now time.Time) bool {

@@ -60,6 +60,17 @@ Services API (`wtsapi32.dll`) in
 - login, logout, lock, and unlock transitions are logged with the `AUDIT:`
   prefix.
 
+The Enforcer sends a short, silent notification when a child's daily limit or
+time window is about to end. Because the service runs as LocalSystem, it
+launches a short-lived helper in the child's interactive session and shows a
+tray balloon, which Windows 11 renders as a toast. See
+[internal/notify](../internal/notify) and the threshold handling in
+[internal/enforcer/agent.go](../internal/enforcer/agent.go).
+
+Send a test notice to every active local session by running the binary as
+LocalSystem. An elevated administrator session is not enough, because
+`WTSQueryUserToken` requires `SeTcbPrivilege`.
+
 Account names are compared case-insensitively on Windows. The local part of the
 `-user` mapping is the Windows account name; the server part is the Timetower
 account. For example, `-user kissd=dani` counts Windows `kissd` activity against
