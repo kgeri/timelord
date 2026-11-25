@@ -35,21 +35,32 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultConfig(t *testing.T) {
-	config, err := LoadConfig(filepath.Join("..", "..", "deploy", "timetower", "config-default.json"))
+func TestLoadSRVUConfig(t *testing.T) {
+	config, err := LoadConfig(filepath.Join("..", "..", "deploy", "timetower", "config-srvu.json"))
 	if err != nil {
-		t.Fatalf("LoadConfig(default) error = %v", err)
+		t.Fatalf("LoadConfig(srvu) error = %v", err)
 	}
-	user, ok := config.UserByName("dani")
-	if !ok {
-		t.Fatal("default user not found")
-	}
-	if user.Policy == nil || mondayLimitMinutes(user.Policy) != 60 {
-		t.Fatalf("default daily limit = %+v, want 60 minutes", user.Policy)
-	}
-	for _, window := range user.Policy.Windows {
-		if window.Day == policy.Tuesday && window.End.String() != "20:30" {
-			t.Errorf("Tuesday end = %s, want 20:30", window.End)
+	for _, want := range []struct {
+		name        string
+		displayName string
+	}{
+		{name: "dani", displayName: "Dani"},
+		{name: "reka", displayName: "Réka"},
+	} {
+		user, ok := config.UserByName(want.name)
+		if !ok {
+			t.Fatalf("srvu user %q not found", want.name)
+		}
+		if user.DisplayName != want.displayName {
+			t.Errorf("%s display name = %q, want %q", want.name, user.DisplayName, want.displayName)
+		}
+		if user.Policy == nil || mondayLimitMinutes(user.Policy) != 60 {
+			t.Fatalf("%s srvu daily limit = %+v, want 60 minutes", want.name, user.Policy)
+		}
+		for _, window := range user.Policy.Windows {
+			if window.Day == policy.Tuesday && window.End.String() != "20:30" {
+				t.Errorf("%s Tuesday end = %s, want 20:30", want.name, window.End)
+			}
 		}
 	}
 }

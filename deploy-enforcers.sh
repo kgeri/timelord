@@ -85,6 +85,6 @@ deploy_host() {
 }
 
 deploy_host linux dani dani=dani
-deploy_host windows acer kissd=dani
+deploy_host windows acer "kissd=dani kissr=reka"
 
 exit "$failures"

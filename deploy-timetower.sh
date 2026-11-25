@@ -5,19 +5,13 @@
 # Usage:
 #   ./deploy-timetower.sh [user@]host
 #
-# The default host is srvu. The live hostPath config is seeded there so the
-# hostPath-backed Deployment always sees the same configuration.
+# The default host is srvu. The image tag is the current git commit. The script
+# refuses to deploy from a dirty tree, reads TIMELORD_ENFORCER_KEY and
+# TIMELORD_ADMIN_PASSWORD from secrets.env, updates the Timetower Kubernetes
+# Secret, runs the Go checks, builds and pushes the image, and applies the
+# Kubernetes manifests. TIMETOWER_HOST can replace the host argument.
 #
-# The image tag is the current git commit. The script refuses to deploy from a
-# dirty tree, reads TIMELORD_ENFORCER_KEY and TIMELORD_ADMIN_PASSWORD from secrets.env, updates the Timetower
-# Kubernetes Secret, seeds /data/hosted/timetower/config.json from
-# deploy/timetower/config-default.json when it is missing, runs the Go checks,
-# builds and pushes the image, and applies the Kubernetes manifests.
-#
-# The script creates /data/hosted/timetower on the target host and copies the
-# default config there over SSH/SCP when it is missing. Set
-# TIMETOWER_FORCE_CONFIG=1 to replace an existing config with the default.
-# TIMETOWER_HOST can replace the host argument.
+# The live config is deployed separately with deploy-timetower-config.sh.
 #
 # Set TIMETOWER_NODE to override the Kubernetes node name (default srvu).
 # Set TIMETOWER_DIR to override /data/hosted/timetower.
@@ -29,19 +23,12 @@ NAMESPACE="${NAMESPACE:-default}"
 TIMETOWER_HOST="${1:-${TIMETOWER_HOST:-srvu}}"
 TIMETOWER_NODE="${TIMETOWER_NODE:-srvu}"
 TIMETOWER_DIR="${TIMETOWER_DIR:-/data/hosted/timetower}"
-DEFAULT_CONFIG="$CWD/deploy/timetower/config-default.json"
-CONFIG_PATH="$TIMETOWER_DIR/config.json"
 SECRETS_FILE="${TIMELORD_SECRETS:-$CWD/secrets.env}"
 SECRET_NAME="timetower-secrets"
 IMAGE_REPOSITORY="docker.ogreg.org/timetower"
 
 if [ -n "$(git -C "$CWD" status --porcelain)" ]; then
 	echo "ERROR: working tree has uncommitted changes; commit before deploying" >&2
-	exit 1
-fi
-
-if [ ! -f "$DEFAULT_CONFIG" ]; then
-	echo "ERROR: default config file not found: $DEFAULT_CONFIG" >&2
 	exit 1
 fi
 
@@ -77,12 +64,7 @@ kubectl create secret generic "$SECRET_NAME" \
 	--dry-run=client -o yaml | kubectl apply -f -
 set -x
 
-# Seed the live config once. An existing host config is preserved unless
-# TIMETOWER_FORCE_CONFIG=1 is set.
 ssh "$TIMETOWER_HOST" "mkdir -p '$TIMETOWER_DIR'"
-if [ "${TIMETOWER_FORCE_CONFIG:-0}" = "1" ] || ! ssh "$TIMETOWER_HOST" "test -e '$CONFIG_PATH'"; then
-	scp "$DEFAULT_CONFIG" "$TIMETOWER_HOST:$CONFIG_PATH"
-fi
 
 # Run the container as the owner of the hostPath directory so it can write the
 # state file without running as root.

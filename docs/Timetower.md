@@ -24,8 +24,9 @@ The API contract is in [openapi.yaml](openapi.yaml).
 ## Static configuration
 
 Timetower reads a JSON configuration file at startup and fails when the file is
-missing or invalid. The default is `deploy/timetower/config-default.json`; the
-deployment keeps the live file at `/data/hosted/timetower/config.json`.
+missing or invalid. The srvu configuration is
+`deploy/timetower/config-srvu.json`; the deployment keeps the live file at
+`/data/hosted/timetower/config.json`.
 
 The configuration contains users and their policies:
 
@@ -307,11 +308,12 @@ calls made by the UI. The Docker image builds the UI and points `-web` at
 
 ## Deployment
 
-`deploy-timetower.sh` seeds `/data/hosted/timetower/config.json` on `srvu`
-from `deploy/timetower/config-default.json` when it is missing, builds and
-pushes the Timetower image, and applies the Kubernetes manifests in
-`deploy/timetower/deployment.yaml`. Set `TIMETOWER_FORCE_CONFIG=1` to replace an
-existing config with the default.
+`deploy-timetower.sh` builds and pushes the Timetower image and applies the
+Kubernetes manifests in `deploy/timetower/deployment.yaml`.
+`deploy-timetower-config.sh` separately copies
+`deploy/timetower/config-srvu.json` to `/data/hosted/timetower/config.json` on
+`srvu` and restarts the Timetower Deployment so it loads the new configuration.
+Run the config script after changing users, policies, or other static settings.
 
 The script also creates/updates the `timetower-secrets` Kubernetes Secret from
 `secrets.env`. The Deployment reads `TIMELORD_ENFORCER_KEY` and

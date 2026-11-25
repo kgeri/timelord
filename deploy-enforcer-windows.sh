@@ -20,7 +20,7 @@ UNINSTALLER_SRC="deploy/windows/uninstall.ps1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="${SCRIPT_DIR}/dist"
 TIMETOWER_URL="${TIMETOWER_URL:-https://timetower.ogreg.org}"
-TIMELORD_USERS="${TIMELORD_USERS:-kissd=dani}"
+TIMELORD_USERS="${TIMELORD_USERS:-kissd=dani kissr=reka}"
 SECRETS_FILE="${TIMELORD_SECRETS:-${SCRIPT_DIR}/secrets.env}"
 key_build=""
 trap 'rm -f "$key_build"' EXIT

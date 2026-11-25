@@ -17,16 +17,19 @@ username with `TIMELORD_ENFORCER_KEY`, and the admin console uses the `admin`
 username with `TIMELORD_ADMIN_PASSWORD`.
 
 ```sh
-cp deploy/timetower/config-default.json timetower.json
+cp deploy/timetower/config-srvu.json timetower.json
 # Edit the users and policies in timetower.json.
 go build -o timetower ./cmd/timetower
 TIMELORD_ENFORCER_KEY=... TIMELORD_ADMIN_PASSWORD=... \
   ./timetower -config timetower.json -state timetower-usage.csv
 ```
 
-Timetower serves plain HTTP; TLS terminates at the ingress. Deploy it with
-`./deploy-timetower.sh` (targets `srvu` by default). The API is documented in
-[docs/Timetower.md](docs/Timetower.md) and [docs/openapi.yaml](docs/openapi.yaml).
+Timetower serves plain HTTP; TLS terminates at the ingress. Code and
+configuration deploy separately: `./deploy-timetower.sh` builds and deploys the
+image, while `./deploy-timetower-config.sh` syncs
+`deploy/timetower/config-srvu.json` and restarts Timetower. Both target `srvu`
+by default. The API is documented in [docs/Timetower.md](docs/Timetower.md) and
+[docs/openapi.yaml](docs/openapi.yaml).
 
 The admin UI in [gui](gui) is built to `gui/build` and served by the same
 binary. The UI and its assets are protected by the admin Basic auth:

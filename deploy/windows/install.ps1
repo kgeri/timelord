@@ -25,7 +25,7 @@ The metrics port to open in the firewall. Defaults to 9220.
 The Timetower base URL. Defaults to https://timetower.ogreg.org.
 
 .PARAMETER Users
-Comma- or space-separated account mappings, optionally local=server. Defaults to kissd=dani.
+Comma- or space-separated account mappings, optionally local=server. Defaults to kissd=dani and kissr=reka.
 
 .PARAMETER EnforcerKeyFile
 Path to a file that contains the Enforcer key. The installer copies it to a
@@ -42,7 +42,7 @@ param(
     [string]$ServiceName = 'TimeLord',
     [int]$ListenPort = 9220,
     [string]$TimetowerURL = 'https://timetower.ogreg.org',
-    [string[]]$Users = @('kissd=dani'),
+    [string[]]$Users = @('kissd=dani', 'kissr=reka'),
     [string]$EnforcerKeyFile = '',
     [string]$KeyPath = (Join-Path $env:ProgramData 'TimeLord\timetower.key')
 )
